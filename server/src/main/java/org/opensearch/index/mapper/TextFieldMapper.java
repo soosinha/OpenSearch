@@ -282,7 +282,7 @@ public class TextFieldMapper extends ParametrizedFieldMapper {
         private final Version indexCreatedVersion;
 
         private final Parameter<Boolean> index = Parameter.indexParam(m -> toType(m).mappedFieldType.isSearchable(), true);
-        private final Parameter<Boolean> store = Parameter.storeParam(m -> toType(m).fieldType.stored() , false);
+        private final Parameter<Boolean> store = Parameter.storeParam(m -> toType(m).fieldType.stored(), false);
 
         final Parameter<SimilarityProvider> similarity = TextParams.similarity(m -> toType(m).similarity);
 
@@ -297,14 +297,19 @@ public class TextFieldMapper extends ParametrizedFieldMapper {
             POSITION_INCREMENT_GAP_USE_ANALYZER
         );
 
-        final Parameter<Boolean> fieldData = Parameter.boolParam("fielddata", true, m -> ((TextFieldType)toType(m).mappedFieldType).fielddata, false);
+        final Parameter<Boolean> fieldData = Parameter.boolParam(
+            "fielddata",
+            true,
+            m -> ((TextFieldType) toType(m).mappedFieldType).fielddata,
+            false
+        );
         final Parameter<FielddataFrequencyFilter> freqFilter = new Parameter<>(
             "fielddata_frequency_filter",
             true,
             () -> DEFAULT_FILTER,
             TextFieldMapper::parseFrequencyFilter,
-            m -> ((TextFieldType)toType(m).mappedFieldType).filter
-        ); // Is it safe to typecast tot TextFieldType
+            m -> toType(m).freqFilter
+        );
         final Parameter<Boolean> eagerGlobalOrdinals = Parameter.boolParam(
             "eager_global_ordinals",
             true,
@@ -312,20 +317,21 @@ public class TextFieldMapper extends ParametrizedFieldMapper {
             false
         );
 
-        final Parameter<Boolean> indexPhrases = Parameter.boolParam("index_phrases", false, m -> ((TextFieldType)toType(m).mappedFieldType).indexPhrases, false);
+        final Parameter<Boolean> indexPhrases = Parameter.boolParam(
+            "index_phrases",
+            false,
+            m -> ((TextFieldType) toType(m).mappedFieldType).indexPhrases,
+            false
+        );
         final Parameter<PrefixConfig> indexPrefixes = new Parameter<>(
             "index_prefixes",
             false,
             () -> null,
             TextFieldMapper::parsePrefixConfig,
-            m -> {
-                if (((TextFieldType) toType(m).mappedFieldType).prefixFieldType == null) {
-                    return null;
-                } else {
-                    return new PrefixConfig(((TextFieldType) toType(m).mappedFieldType).prefixFieldType.minChars, ((TextFieldType) toType(m).mappedFieldType).prefixFieldType.maxChars);
-                }
-            }
-        ).acceptsNull(); //should we have an existing object rather than creating new ?
+            m -> Optional.ofNullable(((TextFieldType) toType(m).mappedFieldType).prefixFieldType)
+                .map(p -> new PrefixConfig(p.minChars, p.maxChars))
+                .orElse(null)
+        ).acceptsNull();
 
         private final Parameter<Float> boost = Parameter.boostParam();
         private final Parameter<Map<String, String>> meta = Parameter.metaParam();
@@ -972,6 +978,7 @@ public class TextFieldMapper extends ParametrizedFieldMapper {
     private final int positionIncrementGap;
     private final Version indexCreatedVersion;
     private final IndexAnalyzers indexAnalyzers;
+    private final FielddataFrequencyFilter freqFilter;
 
     protected TextFieldMapper(
         String simpleName,
@@ -998,6 +1005,7 @@ public class TextFieldMapper extends ParametrizedFieldMapper {
         this.positionIncrementGap = builder.positionIncrementGap.getValue();
         this.indexCreatedVersion = builder.indexCreatedVersion;
         this.indexAnalyzers = builder.analyzers.indexAnalyzers;
+        this.freqFilter = builder.freqFilter.getValue();
     }
 
     @Override
@@ -1007,7 +1015,7 @@ public class TextFieldMapper extends ParametrizedFieldMapper {
 
     @Override
     public ParametrizedFieldMapper.Builder getMergeBuilder() {
-        return new Builder(simpleName(),  this.indexCreatedVersion, this.indexAnalyzers).init(this);
+        return new Builder(simpleName(), this.indexCreatedVersion, this.indexAnalyzers).init(this);
     }
 
     @Override
@@ -1182,4 +1190,29 @@ public class TextFieldMapper extends ParametrizedFieldMapper {
         return spanQuery.build();
     }
 
+    @Override
+    protected void doXContentBody(XContentBuilder builder, boolean includeDefaults, Params params) throws IOException {
+        // this is a pain, but we have to do this to maintain BWC
+        builder.field("type", contentType());
+        Builder mapperBuilder = (TextFieldMapper.Builder) getMergeBuilder();
+        mapperBuilder.boost.toXContent(builder, includeDefaults);
+        mapperBuilder.index.toXContent(builder, includeDefaults);
+        mapperBuilder.store.toXContent(builder, includeDefaults);
+        this.multiFields.toXContent(builder, params);
+        this.copyTo.toXContent(builder, params);
+        mapperBuilder.meta.toXContent(builder, includeDefaults);
+        mapperBuilder.indexOptions.toXContent(builder, includeDefaults);
+        mapperBuilder.termVectors.toXContent(builder, includeDefaults);
+        mapperBuilder.norms.toXContent(builder, includeDefaults);
+        mapperBuilder.analyzers.indexAnalyzer.toXContent(builder, includeDefaults);
+        mapperBuilder.analyzers.searchAnalyzer.toXContent(builder, includeDefaults);
+        mapperBuilder.analyzers.searchQuoteAnalyzer.toXContent(builder, includeDefaults);
+        mapperBuilder.similarity.toXContent(builder, includeDefaults);
+        mapperBuilder.eagerGlobalOrdinals.toXContent(builder, includeDefaults);
+        mapperBuilder.positionIncrementGap.toXContent(builder, includeDefaults);
+        mapperBuilder.fieldData.toXContent(builder, includeDefaults);
+        mapperBuilder.freqFilter.toXContent(builder, includeDefaults);
+        mapperBuilder.indexPrefixes.toXContent(builder, includeDefaults);
+        mapperBuilder.indexPhrases.toXContent(builder, includeDefaults);
+    }
 }
