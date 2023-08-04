@@ -227,6 +227,7 @@ public class RestoreService implements ClusterStateApplier {
      * @param request  restore request
      * @param listener restore listener
      */
+    // TODO remove this method once RemoteStoreRestoreService is final
     public void restoreFromRemoteStore(RestoreRemoteStoreRequest request, final ActionListener<RestoreCompletionResponse> listener) {
         clusterService.submitStateUpdateTask("restore[remote_store]", new ClusterStateUpdateTask() {
             final String restoreUUID = UUIDs.randomBase64UUID();

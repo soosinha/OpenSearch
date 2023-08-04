@@ -58,6 +58,7 @@ import org.opensearch.monitor.fs.FsInfo;
 import org.opensearch.monitor.fs.FsProbe;
 import org.opensearch.plugins.ExtensionAwarePlugin;
 import org.opensearch.plugins.SearchPipelinePlugin;
+import org.opensearch.snapshots.*;
 import org.opensearch.telemetry.tracing.NoopTracerFactory;
 import org.opensearch.telemetry.tracing.Tracer;
 import org.opensearch.telemetry.tracing.TracerFactory;
@@ -214,11 +215,6 @@ import org.opensearch.search.SearchService;
 import org.opensearch.search.aggregations.support.AggregationUsageService;
 import org.opensearch.search.fetch.FetchPhase;
 import org.opensearch.search.query.QueryPhase;
-import org.opensearch.snapshots.InternalSnapshotsInfoService;
-import org.opensearch.snapshots.RestoreService;
-import org.opensearch.snapshots.SnapshotShardsService;
-import org.opensearch.snapshots.SnapshotsInfoService;
-import org.opensearch.snapshots.SnapshotsService;
 import org.opensearch.tasks.Task;
 import org.opensearch.tasks.TaskCancellationService;
 import org.opensearch.tasks.TaskResultsService;
@@ -951,6 +947,15 @@ public class Node implements Closeable {
             RemoteStoreRestoreService remoteStoreRestoreService = new RemoteStoreRestoreService(
                 clusterService,
                 clusterModule.getAllocationService()
+            );
+
+            RemoteStoreRestoreService remoteStoreRestoreService = new RemoteStoreRestoreService(
+                clusterService,
+                clusterModule.getAllocationService(),
+                metadataCreateIndexService,
+                metadataIndexUpgradeService,
+                clusterService.getClusterSettings(),
+                shardLimitValidator
             );
 
             final DiskThresholdMonitor diskThresholdMonitor = new DiskThresholdMonitor(
