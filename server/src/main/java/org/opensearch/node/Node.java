@@ -36,6 +36,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.lucene.util.Constants;
 import org.opensearch.ExceptionsHelper;
+import org.opensearch.cluster.store.RemoteClusterStateService;
 import org.opensearch.common.SetOnce;
 import org.opensearch.common.settings.SettingsException;
 import org.opensearch.common.unit.ByteSizeUnit;
@@ -668,6 +669,8 @@ public class Node implements Closeable {
                 threadPool::relativeTimeInMillis
             );
 
+            final RemoteClusterStateService remoteClusterStateService = new RemoteClusterStateService(repositoriesServiceReference::get, clusterService.getClusterSettings());
+
             // collect engine factory providers from plugins
             final Collection<EnginePlugin> enginePlugins = pluginsService.filterPlugins(EnginePlugin.class);
             final Collection<Function<IndexSettings, Optional<EngineFactory>>> engineFactoryProviders = enginePlugins.stream()
@@ -969,7 +972,8 @@ public class Node implements Closeable {
                 environment.configDir(),
                 gatewayMetaState,
                 rerouteService,
-                fsHealthService
+                fsHealthService,
+                remoteClusterStateService
             );
             final SearchPipelineService searchPipelineService = new SearchPipelineService(
                 clusterService,
@@ -1091,6 +1095,7 @@ public class Node implements Closeable {
                 b.bind(MetadataUpgrader.class).toInstance(metadataUpgrader);
                 b.bind(MetaStateService.class).toInstance(metaStateService);
                 b.bind(PersistedClusterStateService.class).toInstance(lucenePersistedStateFactory);
+                b.bind(RemoteClusterStateService.class).toInstance(remoteClusterStateService);
                 b.bind(IndicesService.class).toInstance(indicesService);
                 b.bind(AliasValidator.class).toInstance(aliasValidator);
                 b.bind(MetadataCreateIndexService.class).toInstance(metadataCreateIndexService);
@@ -1292,7 +1297,8 @@ public class Node implements Closeable {
             injector.getInstance(MetaStateService.class),
             injector.getInstance(MetadataIndexUpgradeService.class),
             injector.getInstance(MetadataUpgrader.class),
-            injector.getInstance(PersistedClusterStateService.class)
+            injector.getInstance(PersistedClusterStateService.class),
+            injector.getInstance(RemoteClusterStateService.class)
         );
         if (Assertions.ENABLED) {
             try {

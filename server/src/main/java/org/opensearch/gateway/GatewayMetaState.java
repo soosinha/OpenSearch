@@ -52,6 +52,7 @@ import org.opensearch.cluster.metadata.Metadata;
 import org.opensearch.cluster.metadata.MetadataIndexUpgradeService;
 import org.opensearch.cluster.node.DiscoveryNode;
 import org.opensearch.cluster.service.ClusterService;
+import org.opensearch.cluster.store.RemoteClusterStateService;
 import org.opensearch.common.SetOnce;
 import org.opensearch.common.collect.Tuple;
 import org.opensearch.common.settings.Settings;
@@ -60,6 +61,7 @@ import org.opensearch.common.util.concurrent.OpenSearchExecutors;
 import org.opensearch.common.util.concurrent.OpenSearchThreadPoolExecutor;
 import org.opensearch.common.util.io.IOUtils;
 import org.opensearch.env.NodeMetadata;
+import org.opensearch.indices.IndicesService;
 import org.opensearch.node.Node;
 import org.opensearch.plugins.MetadataUpgrader;
 import org.opensearch.threadpool.ThreadPool;
@@ -92,6 +94,7 @@ import static org.opensearch.common.util.concurrent.OpenSearchExecutors.daemonTh
  * @opensearch.internal
  */
 public class GatewayMetaState implements Closeable {
+    private static final Logger logger = LogManager.getLogger(GatewayMetaState.class);
 
     /**
      * Fake node ID for a voting configuration written by a cluster-manager-ineligible data node to indicate that its on-disk state is potentially
@@ -103,10 +106,17 @@ public class GatewayMetaState implements Closeable {
     // Set by calling start()
     private final SetOnce<PersistedState> persistedState = new SetOnce<>();
 
+    private final SetOnce<PersistedState> remotePersistedState = new SetOnce<>();
+
     public PersistedState getPersistedState() {
         final PersistedState persistedState = this.persistedState.get();
         assert persistedState != null : "not started";
         return persistedState;
+    }
+
+    public PersistedState getRemotePersistedState() {
+        final PersistedState remotePersistedState = this.remotePersistedState.get();
+        return remotePersistedState;
     }
 
     public Metadata getMetadata() {
@@ -120,7 +130,8 @@ public class GatewayMetaState implements Closeable {
         MetaStateService metaStateService,
         MetadataIndexUpgradeService metadataIndexUpgradeService,
         MetadataUpgrader metadataUpgrader,
-        PersistedClusterStateService persistedClusterStateService
+        PersistedClusterStateService persistedClusterStateService,
+        RemoteClusterStateService remoteClusterStateService
     ) {
         assert persistedState.get() == null : "should only start once, but already have " + persistedState.get();
 
@@ -144,8 +155,14 @@ public class GatewayMetaState implements Closeable {
                 }
 
                 PersistedState persistedState = null;
+                PersistedState remotePersistedState = null;
                 boolean success = false;
                 try {
+                    if (IndicesService.CLUSTER_REMOTE_STORE_ENABLED_SETTING.get(settings)) {
+                        logger.info("remote store is enabled while bootstrap");
+                    } else {
+                        logger.info("remote store is NOT enabled while bootstrap");
+                    }
                     final ClusterState clusterState = prepareInitialClusterState(
                         transportService,
                         clusterService,
@@ -154,9 +171,15 @@ public class GatewayMetaState implements Closeable {
                             .metadata(upgradeMetadataForNode(metadata, metadataIndexUpgradeService, metadataUpgrader))
                             .build()
                     );
+                    if (IndicesService.CLUSTER_REMOTE_STORE_ENABLED_SETTING.get(clusterState.metadata().settings())) {
+                        logger.info("After clusterState build: remote store is enabled while bootstrap");
+                    } else {
+                        logger.info("After clusterState build: remote store is NOT enabled while bootstrap");
+                    }
 
                     if (DiscoveryNode.isClusterManagerNode(settings)) {
                         persistedState = new LucenePersistedState(persistedClusterStateService, currentTerm, clusterState);
+                        remotePersistedState = new RemotePersistedState(remoteClusterStateService, currentTerm, clusterState);
                     } else {
                         persistedState = new AsyncLucenePersistedState(
                             settings,
@@ -182,6 +205,7 @@ public class GatewayMetaState implements Closeable {
                 }
 
                 this.persistedState.set(persistedState);
+                this.remotePersistedState.set(remotePersistedState);
             } catch (IOException e) {
                 throw new OpenSearchException("failed to load metadata", e);
             }
@@ -597,6 +621,84 @@ public class GatewayMetaState implements Closeable {
         @Override
         public void close() throws IOException {
             IOUtils.close(persistenceWriter.getAndSet(null));
+        }
+    }
+
+    public static class RemotePersistedState implements PersistedState {
+
+        //todo check diff between currentTerm and clusterState term
+        private long currentTerm;
+        private ClusterState lastAcceptedState;
+        private final RemoteClusterStateService remoteClusterStateService;
+        private boolean writeNextStateFully;
+
+        public RemotePersistedState(final RemoteClusterStateService remoteClusterStateService, final long currentTerm, final ClusterState lastAcceptedState) {
+            this.remoteClusterStateService = remoteClusterStateService;
+            this.currentTerm = currentTerm;
+            this.lastAcceptedState = lastAcceptedState;
+
+            // todo write state to remote only for active master
+        }
+
+        @Override
+        public long getCurrentTerm() {
+            return currentTerm;
+        }
+
+        @Override
+        public ClusterState getLastAcceptedState() {
+            return lastAcceptedState;
+        }
+
+        @Override
+        public void setCurrentTerm(long currentTerm) {
+            // todo is synchronization needed ?
+            try {
+                if (writeNextStateFully) {
+                    remoteClusterStateService.writeFullStateAndCommit(currentTerm, lastAcceptedState);
+                    writeNextStateFully = false;
+                } else {
+                    remoteClusterStateService.writeIncrementalTermUpdateAndCommit(currentTerm, lastAcceptedState.version());
+                }
+            } catch (Exception e) {
+                handleExceptionOnWrite(e);
+            }
+            this.currentTerm = currentTerm;
+        }
+
+        @Override
+        public void setLastAcceptedState(ClusterState clusterState) {
+            try {
+//                if (writeNextStateFully) {
+                    remoteClusterStateService.writeFullStateAndCommit(currentTerm, clusterState);
+//                    writeNextStateFully = false;
+//                } else {
+//                    if (clusterState.term() != lastAcceptedState.term()) {
+//                        assert clusterState.term() > lastAcceptedState.term() : clusterState.term() + " vs " + lastAcceptedState.term();
+//                        remoteClusterStateService.writeFullStateAndCommit(currentTerm, clusterState);
+//                    } else {
+//                        remoteClusterStateService.writeIncrementalStateAndCommit(currentTerm, lastAcceptedState, clusterState);
+//                    }
+//                }
+            } catch (Exception e) {
+                handleExceptionOnWrite(e);
+            }
+        }
+
+        @Override
+        public void markLastAcceptedStateAsCommitted() {
+            //todo is custom implementation needed?
+            PersistedState.super.markLastAcceptedStateAsCommitted();
+        }
+
+        @Override
+        public void close() throws IOException {
+            PersistedState.super.close();
+        }
+
+        private void handleExceptionOnWrite(Exception e) {
+            writeNextStateFully = true;
+            throw ExceptionsHelper.convertToRuntime(e);
         }
     }
 }

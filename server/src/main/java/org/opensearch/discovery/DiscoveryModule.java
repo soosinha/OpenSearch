@@ -42,6 +42,7 @@ import org.opensearch.cluster.routing.RerouteService;
 import org.opensearch.cluster.routing.allocation.AllocationService;
 import org.opensearch.cluster.service.ClusterApplier;
 import org.opensearch.cluster.service.ClusterManagerService;
+import org.opensearch.cluster.store.RemoteClusterStateService;
 import org.opensearch.common.Randomness;
 import org.opensearch.common.io.stream.NamedWriteableRegistry;
 import org.opensearch.common.network.NetworkService;
@@ -129,7 +130,8 @@ public class DiscoveryModule {
         Path configFile,
         GatewayMetaState gatewayMetaState,
         RerouteService rerouteService,
-        NodeHealthService nodeHealthService
+        NodeHealthService nodeHealthService,
+        RemoteClusterStateService remoteClusterStateService
     ) {
         final Collection<BiConsumer<DiscoveryNode, ClusterState>> joinValidators = new ArrayList<>();
         final Map<String, Supplier<SeedHostsProvider>> hostProviders = new HashMap<>();
@@ -205,7 +207,9 @@ public class DiscoveryModule {
                 new Random(Randomness.get().nextLong()),
                 rerouteService,
                 electionStrategy,
-                nodeHealthService
+                nodeHealthService,
+                remoteClusterStateService,
+                gatewayMetaState::getRemotePersistedState
             );
         } else {
             throw new IllegalArgumentException("Unknown discovery type [" + discoveryType + "]");
