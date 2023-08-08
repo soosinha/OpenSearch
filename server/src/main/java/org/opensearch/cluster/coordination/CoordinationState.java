@@ -66,6 +66,7 @@ public class CoordinationState {
 
     // persisted state
     private final PersistedState persistedState;
+    private final PersistedState remotePersistedState;
 
     // transient state
     private VoteCollection joinVotes;
@@ -75,7 +76,7 @@ public class CoordinationState {
     private VotingConfiguration lastPublishedConfiguration;
     private VoteCollection publishVotes;
 
-    public CoordinationState(DiscoveryNode localNode, PersistedState persistedState, ElectionStrategy electionStrategy) {
+    public CoordinationState(DiscoveryNode localNode, PersistedState persistedState, ElectionStrategy electionStrategy, PersistedState remotePersistedState) {
         this.localNode = localNode;
 
         // persisted state
@@ -89,6 +90,7 @@ public class CoordinationState {
         this.lastPublishedVersion = 0L;
         this.lastPublishedConfiguration = persistedState.getLastAcceptedState().getLastAcceptedConfiguration();
         this.publishVotes = new VoteCollection();
+        this.remotePersistedState = remotePersistedState;
     }
 
     public long getCurrentTerm() {
