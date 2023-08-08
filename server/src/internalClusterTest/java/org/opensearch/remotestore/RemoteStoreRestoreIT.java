@@ -14,19 +14,25 @@ import org.opensearch.action.admin.cluster.remotestore.restore.RestoreRemoteStor
 import org.opensearch.action.index.IndexResponse;
 import org.opensearch.action.support.PlainActionFuture;
 import org.opensearch.cluster.health.ClusterHealthStatus;
+import org.opensearch.common.compress.CompressorType;
 import org.opensearch.common.settings.Settings;
+import org.opensearch.core.common.unit.ByteSizeUnit;
 import org.opensearch.plugins.Plugin;
+import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.test.InternalTestCluster;
 import org.opensearch.test.OpenSearchIntegTestCase;
 import org.opensearch.test.transport.MockTransportService;
 
 import java.io.IOException;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
+import static java.nio.file.Files.move;
 import static org.opensearch.test.hamcrest.OpenSearchAssertions.assertAcked;
 import static org.opensearch.test.hamcrest.OpenSearchAssertions.assertHitCount;
 
@@ -43,6 +49,10 @@ public class RemoteStoreRestoreIT extends RemoteStoreBaseIntegTestCase {
     @Override
     public Settings indexSettings() {
         return remoteStoreIndexSettings(0);
+    }
+
+    public Settings indexSettings(int shards, int replicas) {
+        return remoteStoreIndexSettings(replicas, shards);
     }
 
     @Override
@@ -453,4 +463,170 @@ public class RemoteStoreRestoreIT extends RemoteStoreBaseIntegTestCase {
     }
 
     // TODO: Restore flow - index aliases
+
+    public void testRestoreFlowFullClusterRestart() {
+        int shardCount = 1;
+        // Step - 1 index some data to generate files in remote directory
+        prepareCluster(0, 3, "my-index-01-orig", 0, shardCount);
+        Map<String, Long> indexStats = indexData(1, false, "my-index-01-orig");
+        assertEquals(shardCount, getNumShards("my-index-01-orig").totalNumShards);
+        ensureGreen("my-index-01-orig");
+
+        // Step - 2 copy the data generated in remote to a new indexuuid location. this indexuuid is the same uuid we get in remote
+        // IndexMetadata
+        try {
+            move(
+                absolutePath.resolve(clusterService().state().metadata().index("my-index-01-orig").getIndexUUID()),
+                absolutePath.resolve("TLHafcwfTAazM5hFSFidyA")
+            );
+            move(
+                absolutePath2.resolve(clusterService().state().metadata().index("my-index-01-orig").getIndexUUID()),
+                absolutePath2.resolve("TLHafcwfTAazM5hFSFidyA")
+            );
+        } catch (NoSuchFileException e) {
+            logger.info("using same repo");
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
+        // Step - 3 Trigger full cluster restore
+        client().admin()
+            .cluster()
+            .restoreRemoteStore(new RestoreRemoteStoreRequest().clusterUUID("sampleUUID"), PlainActionFuture.newFuture());
+
+        // Step - 4 validation restore is successful.
+        ensureGreen("my-index-01");
+        assertEquals(getNumShards("my-index-01-orig").totalNumShards, getNumShards("my-index-01").totalNumShards);
+        verifyRestoredData(indexStats, true, "my-index-01");
+    }
+
+    protected Settings.Builder getRepositorySettings(Path location, boolean shallowCopyEnabled) {
+        Settings.Builder settingsBuilder = randomRepositorySettings();
+        settingsBuilder.put("location", location);
+        if (shallowCopyEnabled) {
+            settingsBuilder.put(BlobStoreRepository.REMOTE_STORE_INDEX_SHALLOW_COPY.getKey(), true);
+        }
+        return settingsBuilder;
+    }
+
+    protected Settings.Builder randomRepositorySettings() {
+        final Settings.Builder settings = Settings.builder();
+        final boolean compress = randomBoolean();
+        settings.put("location", randomRepoPath()).put("compress", compress);
+        if (compress) {
+            settings.put("compression_type", randomFrom(CompressorType.values()));
+        }
+        if (rarely()) {
+            settings.put("chunk_size", randomIntBetween(100, 1000), ByteSizeUnit.BYTES);
+        }
+        return settings;
+    }
+
+    // public void testRestoreInSameRemoteStoreEnabledIndex() throws IOException {
+    // String clusterManagerNode = internalCluster().startClusterManagerOnlyNode();
+    // String primary = internalCluster().startDataOnlyNode();
+    // String indexName1 = "testindex1";
+    // // String indexName2 = "testindex2";
+    // String snapshotRepoName = "test-restore-snapshot-repo";
+    // String snapshotName1 = "test-restore-snapshot1";
+    // // String snapshotName2 = "test-restore-snapshot2";
+    // Path absolutePath1 = randomRepoPath().toAbsolutePath();
+    // logger.info("Snapshot Path [{}]", absolutePath1);
+    // // String restoredIndexName2 = indexName2 + "-restored";
+    //
+    // boolean enableShallowCopy = true;
+    // assertAcked(
+    // clusterAdmin().preparePutRepository(snapshotRepoName)
+    // .setType("fs")
+    // .setSettings(getRepositorySettings(absolutePath1, enableShallowCopy))
+    // );
+    // // createRepository(snapshotRepoName, "fs", getRepositorySettings(absolutePath1, enableShallowCopy));
+    //
+    // Client client = client();
+    // Settings indexSettings = indexSettings(1, 0);
+    // createIndex(indexName1, indexSettings);
+    //
+    // // Settings indexSettings2 = indexSettings(1, 0);
+    // // createIndex(indexName2, indexSettings2);
+    //
+    // final int numDocsInIndex1 = 5;
+    // // final int numDocsInIndex2 = 6;
+    // indexData(numDocsInIndex1, true, indexName1);
+    // // indexDocuments(client, indexName2, numDocsInIndex2);
+    // ensureGreen(indexName1);
+    //
+    // internalCluster().startDataOnlyNode();
+    // logger.info("--> snapshot");
+    // CreateSnapshotResponse createSnapshotResponse = client.admin()
+    // .cluster()
+    // .prepareCreateSnapshot(snapshotRepoName, snapshotName1)
+    // .setWaitForCompletion(true)
+    // .setIndices(indexName1)
+    // .get();
+    // assertThat(createSnapshotResponse.getSnapshotInfo().successfulShards(), greaterThan(0));
+    // assertThat(
+    // createSnapshotResponse.getSnapshotInfo().successfulShards(),
+    // equalTo(createSnapshotResponse.getSnapshotInfo().totalShards())
+    // );
+    // assertThat(createSnapshotResponse.getSnapshotInfo().state(), equalTo(SnapshotState.SUCCESS));
+    //
+    // // updateRepository(snapshotRepoName, "fs", getRepositorySettings(absolutePath1, false));
+    // // CreateSnapshotResponse createSnapshotResponse2 = client.admin()
+    // // .cluster()
+    // // .prepareCreateSnapshot(snapshotRepoName, snapshotName2)
+    // // .setWaitForCompletion(true)
+    // // .setIndices(indexName1, indexName2)
+    // // .get();
+    // // assertThat(createSnapshotResponse2.getSnapshotInfo().successfulShards(), greaterThan(0));
+    // // assertThat(
+    // // createSnapshotResponse2.getSnapshotInfo().successfulShards(),
+    // // equalTo(createSnapshotResponse2.getSnapshotInfo().totalShards())
+    // // );
+    // // assertThat(createSnapshotResponse2.getSnapshotInfo().state(), equalTo(SnapshotState.SUCCESS));
+    //
+    // // DeleteResponse deleteResponse = client().prepareDelete(indexName1, "0").execute().actionGet();
+    // // assertEquals(deleteResponse.getResult(), DocWriteResponse.Result.DELETED);
+    // // indexDocuments(client, indexName1, numDocsInIndex1, numDocsInIndex1 + randomIntBetween(2, 5));
+    // // ensureGreen(indexName1);
+    //
+    // assertAcked(client().admin().indices().prepareDelete(indexName1));
+    //
+    // // RestoreSnapshotResponse restoreSnapshotResponse1 = client.admin()
+    // // .cluster()
+    // // .prepareRestoreSnapshot(snapshotRepoName, snapshotName1)
+    // // .setWaitForCompletion(false)
+    // // .setIndices(indexName1)
+    // // .get();
+    // // RestoreSnapshotResponse restoreSnapshotResponse2 = client.admin()
+    // // .cluster()
+    // // .prepareRestoreSnapshot(snapshotRepoName, snapshotName2)
+    // // .setWaitForCompletion(false)
+    // // .setIndices(indexName2)
+    // // .setRenamePattern(indexName2)
+    // // .setRenameReplacement(restoredIndexName2)
+    // // .get();
+    // // assertEquals(restoreSnapshotResponse1.status(), RestStatus.ACCEPTED);
+    // // assertEquals(restoreSnapshotResponse2.status(), RestStatus.ACCEPTED);
+    // // ensureGreen(indexName1, restoredIndexName2);
+    // // assertDocsPresentInIndex(client, indexName1, numDocsInIndex1);
+    // // assertDocsPresentInIndex(client, restoredIndexName2, numDocsInIndex2);
+    //
+    // // deleting data for restoredIndexName1 and restoring from remote store.
+    // // internalCluster().stopRandomNode(InternalTestCluster.nameFilter(primary));
+    // // ensureRed(indexName1);
+    // // Re-initialize client to make sure we are not using client from stopped node.
+    // client = client(clusterManagerNode);
+    // // assertAcked(client.admin().indices().prepareClose(indexName1));
+    // client.admin()
+    // .cluster()
+    // .restoreRemoteStore(new RestoreRemoteStoreRequest().indices(indexName1).restoreAllShards(true), PlainActionFuture.newFuture());
+    // // ensureYellowAndNoInitializingShards(indexName1);
+    // ensureGreen("my-index-01");
+    // // assertDocsPresentInIndex(client(), indexName1, numDocsInIndex1);
+    // // indexing some new docs and validating
+    // // indexDocuments(client, indexName1, numDocsInIndex1, numDocsInIndex1 + 2);
+    // // ensureGreen(indexName1);
+    // // assertDocsPresentInIndex(client, indexName1, numDocsInIndex1 + 2);
+    // }
+    //
 }
