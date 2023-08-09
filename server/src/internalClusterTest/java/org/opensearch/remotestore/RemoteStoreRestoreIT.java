@@ -9,30 +9,20 @@
 package org.opensearch.remotestore;
 
 import org.junit.Before;
-import org.opensearch.action.ActionListener;
 import org.opensearch.action.admin.cluster.remotestore.restore.RestoreRemoteStoreRequest;
 import org.opensearch.action.admin.cluster.remotestore.restore.RestoreRemoteStoreResponse;
-import org.opensearch.action.admin.cluster.snapshots.create.CreateSnapshotResponse;
-import org.opensearch.action.admin.cluster.snapshots.restore.RestoreClusterStateListener;
 import org.opensearch.action.index.IndexResponse;
 import org.opensearch.action.support.PlainActionFuture;
-import org.opensearch.client.Client;
 import org.opensearch.cluster.health.ClusterHealthStatus;
-import org.opensearch.common.compress.CompressorType;
-import org.opensearch.common.inject.Inject;
+import org.opensearch.common.UUIDs;
 import org.opensearch.common.settings.Settings;
-import org.opensearch.core.common.unit.ByteSizeUnit;
 import org.opensearch.plugins.Plugin;
-import org.opensearch.repositories.blobstore.BlobStoreRepository;
-import org.opensearch.snapshots.RemoteStoreRestoreService;
-import org.opensearch.snapshots.SnapshotState;
 import org.opensearch.test.InternalTestCluster;
 import org.opensearch.test.OpenSearchIntegTestCase;
 import org.opensearch.test.transport.MockTransportService;
 
 import java.io.IOException;
 import java.nio.file.NoSuchFileException;
-import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
@@ -40,8 +30,6 @@ import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
 import static java.nio.file.Files.move;
-import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.greaterThan;
 import static org.opensearch.test.hamcrest.OpenSearchAssertions.assertAcked;
 import static org.opensearch.test.hamcrest.OpenSearchAssertions.assertHitCount;
 
@@ -54,6 +42,14 @@ public class RemoteStoreRestoreIT extends RemoteStoreBaseIntegTestCase {
     private static final String REFRESHED_OR_FLUSHED_OPERATIONS = "refreshed-or-flushed-operations";
     private static final String MAX_SEQ_NO_TOTAL = "max-seq-no-total";
     private static final String MAX_SEQ_NO_REFRESHED_OR_FLUSHED = "max-seq-no-refreshed-or-flushed";
+
+    @Override
+    protected Settings nodeSettings(int nodeOrdinal) {
+        return Settings.builder()
+            .put(super.nodeSettings(nodeOrdinal))
+            .put(remoteStoreClusterSettings(REPOSITORY_NAME))
+            .build();
+    }
 
     @Override
     public Settings indexSettings() {
@@ -473,8 +469,14 @@ public class RemoteStoreRestoreIT extends RemoteStoreBaseIntegTestCase {
 
     // TODO: Restore flow - index aliases
 
+    // TODO will be removed once we remote cluster state upload/download flow ready
+    @Override
+    protected IndexResponse indexSingleDoc(String indexName) {
+        return client().prepareIndex(indexName).setId(UUIDs.randomBase64UUID()).setSource("fixedKeyName", randomAlphaOfLength(5)).get();
+    }
+
     public void testRestoreFlowFullClusterRestartZeroReplica() {
-        int shardCount = randomIntBetween(1, 5);
+        int shardCount = 2;
         // Step - 1 index some data to generate files in remote directory
         prepareCluster(0, 3, INDEX_NAME, 0, shardCount);
         Map<String, Long> indexStats = indexData(1, false, INDEX_NAME);
@@ -494,7 +496,7 @@ public class RemoteStoreRestoreIT extends RemoteStoreBaseIntegTestCase {
             );
             move(
                 absolutePath2.resolve(clusterService().state().metadata().index(INDEX_NAME).getIndexUUID()),
-                absolutePath2.resolve(restoreIndexUUID)
+                absolutePath.resolve(restoreIndexUUID)
             );
         } catch (NoSuchFileException e) {
             logger.info("Used same repo for segments and translog");

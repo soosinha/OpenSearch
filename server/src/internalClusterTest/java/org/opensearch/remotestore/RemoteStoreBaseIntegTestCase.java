@@ -108,7 +108,7 @@ public class RemoteStoreBaseIntegTestCase extends OpenSearchIntegTestCase {
     protected Settings nodeSettings(int nodeOrdinal) {
         return Settings.builder()
             .put(super.nodeSettings(nodeOrdinal))
-            .put(remoteStoreClusterSettings(REPOSITORY_NAME, REPOSITORY_NAME, true))
+            .put(remoteStoreClusterSettings(REPOSITORY_NAME, REPOSITORY_2_NAME, true))
             .build();
     }
 
@@ -126,7 +126,10 @@ public class RemoteStoreBaseIntegTestCase extends OpenSearchIntegTestCase {
     }
 
     protected IndexResponse indexSingleDoc(String indexName) {
-        return client().prepareIndex(indexName).setId(UUIDs.randomBase64UUID()).setSource("varun", randomAlphaOfLength(5)).get();
+        return client().prepareIndex(indexName)
+            .setId(UUIDs.randomBase64UUID())
+            .setSource(documentKeys.get(randomIntBetween(0, documentKeys.size() - 1)), randomAlphaOfLength(5))
+            .get();
     }
 
     protected BulkResponse indexBulk(String indexName, int numDocs) {
