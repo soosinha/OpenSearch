@@ -58,7 +58,6 @@ import org.opensearch.cluster.routing.allocation.AllocationService;
 import org.opensearch.cluster.service.ClusterApplier;
 import org.opensearch.cluster.service.ClusterApplier.ClusterApplyListener;
 import org.opensearch.cluster.service.ClusterManagerService;
-import org.opensearch.cluster.store.RemoteClusterStateService;
 import org.opensearch.common.Booleans;
 import org.opensearch.common.Nullable;
 import org.opensearch.common.Priority;
@@ -183,7 +182,6 @@ public class Coordinator extends AbstractLifecycleComponent implements Discovery
     private JoinHelper.JoinAccumulator joinAccumulator;
     private Optional<CoordinatorPublication> currentPublication = Optional.empty();
     private final NodeHealthService nodeHealthService;
-    private final RemoteClusterStateService remoteClusterStateService;
     private final Supplier<CoordinationState.PersistedState> remotePersistedStateSupplier;
 
     /**
@@ -206,7 +204,6 @@ public class Coordinator extends AbstractLifecycleComponent implements Discovery
         RerouteService rerouteService,
         ElectionStrategy electionStrategy,
         NodeHealthService nodeHealthService,
-        RemoteClusterStateService remoteClusterStateService,
         Supplier<CoordinationState.PersistedState> remotePersistedStateSupplier
     ) {
         this.settings = settings;
@@ -292,7 +289,6 @@ public class Coordinator extends AbstractLifecycleComponent implements Discovery
             joinHelper::logLastFailedJoinAttempt
         );
         this.nodeHealthService = nodeHealthService;
-        this.remoteClusterStateService = remoteClusterStateService;
         this.remotePersistedStateSupplier = remotePersistedStateSupplier;
         this.localNodeCommissioned = true;
     }
@@ -1318,11 +1314,8 @@ public class Coordinator extends AbstractLifecycleComponent implements Discovery
                 lagDetector.setTrackedNodes(publishNodes);
 
                 PersistedState remotePersistedState = remotePersistedStateSupplier.get();
-                if (remotePersistedState == null) {
-                    logger.error("remote persisted state is null");
-                } else {
-                    remotePersistedState.setLastAcceptedState(clusterState);
-                }
+                assert remotePersistedState != null : "Remote state has not been initialized";
+                remotePersistedState.setLastAcceptedState(clusterState);
                 publication.start(followersChecker.getFaultyNodes());
             }
         } catch (Exception e) {

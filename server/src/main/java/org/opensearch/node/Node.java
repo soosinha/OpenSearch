@@ -669,8 +669,6 @@ public class Node implements Closeable {
                 threadPool::relativeTimeInMillis
             );
 
-            final RemoteClusterStateService remoteClusterStateService = new RemoteClusterStateService(repositoriesServiceReference::get, clusterService.getClusterSettings());
-
             // collect engine factory providers from plugins
             final Collection<EnginePlugin> enginePlugins = pluginsService.filterPlugins(EnginePlugin.class);
             final Collection<Function<IndexSettings, Optional<EngineFactory>>> engineFactoryProviders = enginePlugins.stream()
@@ -958,6 +956,8 @@ public class Node implements Closeable {
                 rerouteService
             );
             clusterInfoService.addListener(diskThresholdMonitor::onNewInfo);
+
+            final RemoteClusterStateService remoteClusterStateService = new RemoteClusterStateService(repositoriesServiceReference::get, settings);
 
             final DiscoveryModule discoveryModule = new DiscoveryModule(
                 settings,

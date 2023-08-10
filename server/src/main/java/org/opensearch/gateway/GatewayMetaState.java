@@ -158,11 +158,6 @@ public class GatewayMetaState implements Closeable {
                 PersistedState remotePersistedState = null;
                 boolean success = false;
                 try {
-                    if (IndicesService.CLUSTER_REMOTE_STORE_ENABLED_SETTING.get(settings)) {
-                        logger.info("remote store is enabled while bootstrap");
-                    } else {
-                        logger.info("remote store is NOT enabled while bootstrap");
-                    }
                     final ClusterState clusterState = prepareInitialClusterState(
                         transportService,
                         clusterService,
@@ -171,15 +166,10 @@ public class GatewayMetaState implements Closeable {
                             .metadata(upgradeMetadataForNode(metadata, metadataIndexUpgradeService, metadataUpgrader))
                             .build()
                     );
-                    if (IndicesService.CLUSTER_REMOTE_STORE_ENABLED_SETTING.get(clusterState.metadata().settings())) {
-                        logger.info("After clusterState build: remote store is enabled while bootstrap");
-                    } else {
-                        logger.info("After clusterState build: remote store is NOT enabled while bootstrap");
-                    }
 
                     if (DiscoveryNode.isClusterManagerNode(settings)) {
                         persistedState = new LucenePersistedState(persistedClusterStateService, currentTerm, clusterState);
-                        remotePersistedState = new RemotePersistedState(remoteClusterStateService, currentTerm, clusterState);
+                        remotePersistedState = new RemotePersistedState(remoteClusterStateService);
                     } else {
                         persistedState = new AsyncLucenePersistedState(
                             settings,
@@ -624,6 +614,9 @@ public class GatewayMetaState implements Closeable {
         }
     }
 
+    /**
+     * Encapsulates the writing of metadata to a remote store using {@link RemoteClusterStateService}.
+     */
     public static class RemotePersistedState implements PersistedState {
 
         //todo check diff between currentTerm and clusterState term
@@ -640,6 +633,11 @@ public class GatewayMetaState implements Closeable {
             // todo write state to remote only for active master
         }
 
+        public RemotePersistedState(final RemoteClusterStateService remoteClusterStateService) {
+            this.remoteClusterStateService = remoteClusterStateService;
+            this.writeNextStateFully = true;
+        }
+
         @Override
         public long getCurrentTerm() {
             return currentTerm;
@@ -652,25 +650,14 @@ public class GatewayMetaState implements Closeable {
 
         @Override
         public void setCurrentTerm(long currentTerm) {
-            // todo is synchronization needed ?
-            try {
-                if (writeNextStateFully) {
-                    remoteClusterStateService.writeFullStateAndCommit(currentTerm, lastAcceptedState);
-                    writeNextStateFully = false;
-                } else {
-                    remoteClusterStateService.writeIncrementalTermUpdateAndCommit(currentTerm, lastAcceptedState.version());
-                }
-            } catch (Exception e) {
-                handleExceptionOnWrite(e);
-            }
-            this.currentTerm = currentTerm;
+            // no-op
         }
 
         @Override
         public void setLastAcceptedState(ClusterState clusterState) {
             try {
 //                if (writeNextStateFully) {
-                    remoteClusterStateService.writeFullStateAndCommit(currentTerm, clusterState);
+                    remoteClusterStateService.writeFullMetadata(currentTerm, clusterState);
 //                    writeNextStateFully = false;
 //                } else {
 //                    if (clusterState.term() != lastAcceptedState.term()) {
@@ -687,8 +674,7 @@ public class GatewayMetaState implements Closeable {
 
         @Override
         public void markLastAcceptedStateAsCommitted() {
-            //todo is custom implementation needed?
-            PersistedState.super.markLastAcceptedStateAsCommitted();
+            // no-op
         }
 
         @Override
