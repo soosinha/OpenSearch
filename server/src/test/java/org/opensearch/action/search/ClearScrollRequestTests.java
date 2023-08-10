@@ -32,8 +32,7 @@
 
 package org.opensearch.action.search;
 
-import org.opensearch.common.Strings;
-import org.opensearch.common.bytes.BytesReference;
+import org.opensearch.core.common.bytes.BytesReference;
 import org.opensearch.core.xcontent.ToXContent;
 import org.opensearch.core.xcontent.XContentBuilder;
 import org.opensearch.common.xcontent.XContentFactory;
@@ -94,7 +93,7 @@ public class ClearScrollRequestTests extends OpenSearchTestCase {
         clearScrollRequest.addScrollId("SCROLL_ID");
         try (XContentBuilder builder = JsonXContent.contentBuilder()) {
             clearScrollRequest.toXContent(builder, ToXContent.EMPTY_PARAMS);
-            assertEquals("{\"scroll_id\":[\"SCROLL_ID\"]}", Strings.toString(builder));
+            assertEquals("{\"scroll_id\":[\"SCROLL_ID\"]}", builder.toString());
         }
     }
 

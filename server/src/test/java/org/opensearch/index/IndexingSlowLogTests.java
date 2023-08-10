@@ -41,21 +41,22 @@ import org.apache.lucene.index.Term;
 import org.opensearch.Version;
 import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.common.UUIDs;
-import org.opensearch.common.bytes.BytesArray;
-import org.opensearch.common.bytes.BytesReference;
+import org.opensearch.core.common.bytes.BytesArray;
+import org.opensearch.core.common.bytes.BytesReference;
 import org.opensearch.common.logging.Loggers;
 import org.opensearch.common.logging.MockAppender;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.TimeValue;
-import org.opensearch.common.xcontent.XContentType;
 import org.opensearch.common.xcontent.json.JsonXContent;
+import org.opensearch.core.index.Index;
+import org.opensearch.core.xcontent.MediaTypeRegistry;
 import org.opensearch.index.IndexingSlowLog.IndexingSlowLogMessage;
 import org.opensearch.index.engine.Engine;
 import org.opensearch.index.engine.InternalEngineTests;
 import org.opensearch.index.mapper.ParsedDocument;
 import org.opensearch.index.mapper.SeqNoFieldMapper;
 import org.opensearch.index.mapper.Uid;
-import org.opensearch.index.shard.ShardId;
+import org.opensearch.core.index.shard.ShardId;
 import org.opensearch.test.OpenSearchTestCase;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -226,7 +227,7 @@ public class IndexingSlowLogTests extends OpenSearchTestCase {
             "routingValue",
             null,
             source,
-            XContentType.JSON,
+            MediaTypeRegistry.JSON,
             null
         );
         Index index = new Index("foo", "123");
@@ -254,7 +255,7 @@ public class IndexingSlowLogTests extends OpenSearchTestCase {
             null,
             null,
             source,
-            XContentType.JSON,
+            MediaTypeRegistry.JSON,
             null
         );
         Index index = new Index("foo", "123");
@@ -284,7 +285,7 @@ public class IndexingSlowLogTests extends OpenSearchTestCase {
             null,
             null,
             source,
-            XContentType.JSON,
+            MediaTypeRegistry.JSON,
             null
         );
 

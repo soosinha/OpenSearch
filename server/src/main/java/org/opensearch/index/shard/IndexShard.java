@@ -32,7 +32,6 @@
 
 package org.opensearch.index.shard;
 
-import com.carrotsearch.hppc.ObjectLongMap;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.message.ParameterizedMessage;
 import org.apache.lucene.codecs.CodecUtil;
@@ -44,7 +43,6 @@ import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.SegmentInfos;
 import org.apache.lucene.index.Term;
-import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.QueryCachingPolicy;
 import org.apache.lucene.search.ReferenceManager;
@@ -91,7 +89,7 @@ import org.opensearch.common.lucene.index.OpenSearchDirectoryReader;
 import org.opensearch.common.metrics.CounterMetric;
 import org.opensearch.common.metrics.MeanMetric;
 import org.opensearch.common.settings.Settings;
-import org.opensearch.common.unit.ByteSizeValue;
+import org.opensearch.core.common.unit.ByteSizeValue;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.common.util.BigArrays;
 import org.opensearch.common.util.concurrent.AbstractRunnable;
@@ -100,12 +98,13 @@ import org.opensearch.common.util.concurrent.BufferedAsyncIOProcessor;
 import org.opensearch.common.util.concurrent.RunOnce;
 import org.opensearch.common.util.concurrent.ThreadContext;
 import org.opensearch.common.util.set.Sets;
-import org.opensearch.common.xcontent.XContentHelper;
 import org.opensearch.common.util.io.IOUtils;
 import org.opensearch.common.lease.Releasable;
 import org.opensearch.common.lease.Releasables;
+import org.opensearch.core.index.shard.ShardId;
+import org.opensearch.core.xcontent.MediaTypeRegistry;
 import org.opensearch.gateway.WriteStateException;
-import org.opensearch.index.Index;
+import org.opensearch.core.index.Index;
 import org.opensearch.index.IndexModule;
 import org.opensearch.index.IndexNotFoundException;
 import org.opensearch.index.IndexService;
@@ -175,7 +174,7 @@ import org.opensearch.index.warmer.ShardIndexWarmerService;
 import org.opensearch.index.warmer.WarmerStats;
 import org.opensearch.indices.IndexingMemoryController;
 import org.opensearch.indices.IndicesService;
-import org.opensearch.indices.breaker.CircuitBreakerService;
+import org.opensearch.core.indices.breaker.CircuitBreakerService;
 import org.opensearch.indices.cluster.IndicesClusterStateService;
 import org.opensearch.indices.recovery.PeerRecoveryTargetService;
 import org.opensearch.indices.recovery.RecoveryFailedException;
@@ -186,7 +185,7 @@ import org.opensearch.indices.replication.checkpoint.ReplicationCheckpoint;
 import org.opensearch.indices.replication.checkpoint.SegmentReplicationCheckpointPublisher;
 import org.opensearch.repositories.RepositoriesService;
 import org.opensearch.repositories.Repository;
-import org.opensearch.rest.RestStatus;
+import org.opensearch.core.rest.RestStatus;
 import org.opensearch.search.suggest.completion.CompletionStats;
 import org.opensearch.threadpool.ThreadPool;
 
@@ -200,9 +199,7 @@ import java.nio.file.NoSuchFileException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.EnumSet;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -338,6 +335,8 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
     private final boolean isTimeSeriesIndex;
     private final RemoteRefreshSegmentPressureService remoteRefreshSegmentPressureService;
 
+    private final List<ReferenceManager.RefreshListener> internalRefreshListener = new ArrayList<>();
+
     public IndexShard(
         final ShardRouting shardRouting,
         final IndexSettings indexSettings,
@@ -368,7 +367,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         assert shardRouting.initializing();
         this.shardRouting = shardRouting;
         final Settings settings = indexSettings.getSettings();
-        this.codecService = new CodecService(mapperService, logger);
+        this.codecService = new CodecService(mapperService, indexSettings, logger);
         this.warmer = warmer;
         this.similarityService = similarityService;
         Objects.requireNonNull(store, "Store must be provided to the index shard");
@@ -678,8 +677,19 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
                                 // this Shard's engine was read only, we need to update its engine before restoring local history from xlog.
                                 assert newRouting.primary() && currentRouting.primary() == false;
                                 resetEngineToGlobalCheckpoint();
+                                // It is possible an engine can open with a SegmentInfos on a higher gen but the reader does not refresh to
+                                // trigger our refresh listener.
+                                // Force update the checkpoint post engine reset.
+                                updateReplicationCheckpoint();
                             }
+
                             replicationTracker.activatePrimaryMode(getLocalCheckpoint());
+                            if (indexSettings.isSegRepEnabled()) {
+                                // force publish a checkpoint once in primary mode so that replicas not caught up to previous primary
+                                // are brought up to date.
+                                checkpointPublisher.publish(this, getLatestReplicationCheckpoint());
+                            }
+
                             ensurePeerRecoveryRetentionLeasesExist();
                             /*
                              * If this shard was serving as a replica shard when another shard was promoted to primary then
@@ -812,6 +822,13 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
                 if (syncTranslog) {
                     maybeSync();
                 }
+
+                // Ensures all in-flight remote store operations drain, before we perform the handoff.
+                internalRefreshListener.stream()
+                    .filter(refreshListener -> refreshListener instanceof Closeable)
+                    .map(refreshListener -> (Closeable) refreshListener)
+                    .close();
+
                 // no shard operation permits are being held here, move state from started to relocated
                 assert indexShardOperationPermits.getActiveOperationsCount() == OPERATIONS_BLOCKED
                     : "in-flight operations in progress while moving shard state to relocated";
@@ -923,7 +940,8 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
             autoGeneratedTimestamp,
             isRetry,
             Engine.Operation.Origin.PRIMARY,
-            sourceToParse
+            sourceToParse,
+            null
         );
     }
 
@@ -936,23 +954,6 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         boolean isRetry,
         SourceToParse sourceToParse
     ) throws IOException {
-        if (indexSettings.isSegRepEnabled()) {
-            Engine.Index index = new Engine.Index(
-                new Term(IdFieldMapper.NAME, Uid.encodeId(id)),
-                new ParsedDocument(null, null, id, null, null, sourceToParse.source(), sourceToParse.getXContentType(), null),
-                seqNo,
-                opPrimaryTerm,
-                version,
-                null,
-                Engine.Operation.Origin.REPLICA,
-                System.nanoTime(),
-                autoGeneratedTimeStamp,
-                isRetry,
-                UNASSIGNED_SEQ_NO,
-                0
-            );
-            return getEngine().index(index);
-        }
         return applyIndexOperation(
             getEngine(),
             seqNo,
@@ -964,7 +965,8 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
             autoGeneratedTimeStamp,
             isRetry,
             Engine.Operation.Origin.REPLICA,
-            sourceToParse
+            sourceToParse,
+            id
         );
     }
 
@@ -979,8 +981,29 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         long autoGeneratedTimeStamp,
         boolean isRetry,
         Engine.Operation.Origin origin,
-        SourceToParse sourceToParse
+        SourceToParse sourceToParse,
+        String id
     ) throws IOException {
+
+        // For Segment Replication enabled replica shards we can be skip parsing the documents as we directly copy segments from primary
+        // shard.
+        if (indexSettings.isSegRepEnabled() && routingEntry().primary() == false) {
+            Engine.Index index = new Engine.Index(
+                new Term(IdFieldMapper.NAME, Uid.encodeId(id)),
+                new ParsedDocument(null, null, id, null, null, sourceToParse.source(), sourceToParse.getMediaType(), null),
+                seqNo,
+                opPrimaryTerm,
+                version,
+                null,
+                Engine.Operation.Origin.REPLICA,
+                System.nanoTime(),
+                autoGeneratedTimeStamp,
+                isRetry,
+                UNASSIGNED_SEQ_NO,
+                0
+            );
+            return getEngine().index(index);
+        }
         assert opPrimaryTerm <= getOperationPrimaryTerm() : "op term [ "
             + opPrimaryTerm
             + " ] > shard term ["
@@ -1545,15 +1568,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
      * @return EMPTY checkpoint before the engine is opened and null for non-segrep enabled indices
      */
     public ReplicationCheckpoint getLatestReplicationCheckpoint() {
-        final Tuple<GatedCloseable<SegmentInfos>, ReplicationCheckpoint> infosAndCheckpoint = getLatestSegmentInfosAndCheckpoint();
-        if (infosAndCheckpoint == null) {
-            return null;
-        }
-        try (final GatedCloseable<SegmentInfos> ignored = infosAndCheckpoint.v1()) {
-            return infosAndCheckpoint.v2();
-        } catch (IOException e) {
-            throw new OpenSearchException("Error Closing SegmentInfos Snapshot", e);
-        }
+        return replicationTracker.getLatestReplicationCheckpoint();
     }
 
     /**
@@ -1567,13 +1582,11 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
      *
      */
     public Tuple<GatedCloseable<SegmentInfos>, ReplicationCheckpoint> getLatestSegmentInfosAndCheckpoint() {
-        if (indexSettings.isSegRepEnabled() == false) {
-            return null;
-        }
+        assert indexSettings.isSegRepEnabled();
 
         Tuple<GatedCloseable<SegmentInfos>, ReplicationCheckpoint> nullSegmentInfosEmptyCheckpoint = new Tuple<>(
             new GatedCloseable<>(null, () -> {}),
-            ReplicationCheckpoint.empty(shardId, getDefaultCodecName())
+            getLatestReplicationCheckpoint()
         );
 
         if (getEngineOrNull() == null) {
@@ -1592,11 +1605,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
                         getOperationPrimaryTerm(),
                         segmentInfos.getGeneration(),
                         segmentInfos.getVersion(),
-                        // TODO: Update replicas to compute length from SegmentInfos. Replicas do not yet incref segments with
-                        // getSegmentInfosSnapshot, so computing length from SegmentInfos can cause issues.
-                        shardRouting.primary()
-                            ? store.getSegmentMetadataMap(segmentInfos).values().stream().mapToLong(StoreFileMetadata::length).sum()
-                            : store.stats(StoreStats.UNKNOWN_RESERVED_BYTES).getSizeInBytes(),
+                        store.getSegmentMetadataMap(segmentInfos).values().stream().mapToLong(StoreFileMetadata::length).sum(),
                         getEngine().config().getCodec().getName()
                     )
                 );
@@ -1852,10 +1861,6 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         indexShardOperationPermits.blockOperations(30, TimeUnit.MINUTES, () -> { resetEngineToGlobalCheckpoint(); });
     }
 
-    public void onCheckpointPublished(ReplicationCheckpoint checkpoint) {
-        replicationTracker.setLatestReplicationCheckpoint(checkpoint);
-    }
-
     /**
      * Wrapper for a non-closing reader
      *
@@ -1980,7 +1985,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         final Optional<SequenceNumbers.CommitInfo> safeCommit;
         final long globalCheckpoint;
         try {
-            final String translogUUID = store.readLastCommittedSegmentsInfo().getUserData().get(Translog.TRANSLOG_UUID_KEY);
+            final String translogUUID = store.readLastCommittedSegmentsInfo().getUserData().get(TRANSLOG_UUID_KEY);
             globalCheckpoint = Translog.readGlobalCheckpoint(translogConfig.getTranslogPath(), translogUUID);
             safeCommit = store.findSafeIndexCommit(globalCheckpoint);
         } catch (org.apache.lucene.index.IndexNotFoundException e) {
@@ -2080,7 +2085,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         try {
             seqNo = Long.parseLong(store.readLastCommittedSegmentsInfo().getUserData().get(MAX_SEQ_NO));
         } catch (org.apache.lucene.index.IndexNotFoundException e) {
-            logger.error("skip local recovery as no index commit found", e);
+            logger.error("skip local recovery as no index commit found");
             return UNASSIGNED_SEQ_NO;
         } catch (Exception e) {
             logger.error("skip local recovery as failed to find the safe commit", e);
@@ -2163,9 +2168,10 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
                         shardId.getIndexName(),
                         index.id(),
                         index.source(),
-                        XContentHelper.xContentType(index.source()),
+                        MediaTypeRegistry.xContentType(index.source()),
                         index.routing()
-                    )
+                    ),
+                    index.id()
                 );
                 break;
             case DELETE:
@@ -2234,7 +2240,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         // we have to set it before we open an engine and recover from the translog because
         // acquiring a snapshot from the translog causes a sync which causes the global checkpoint to be pulled in,
         // and an engine can be forced to close in ctor which also causes the global checkpoint to be pulled in.
-        final String translogUUID = store.readLastCommittedSegmentsInfo().getUserData().get(Translog.TRANSLOG_UUID_KEY);
+        final String translogUUID = store.readLastCommittedSegmentsInfo().getUserData().get(TRANSLOG_UUID_KEY);
         final long globalCheckpoint = Translog.readGlobalCheckpoint(translogConfig.getTranslogPath(), translogUUID);
         replicationTracker.updateGlobalCheckpointOnReplica(globalCheckpoint, "read from translog checkpoint");
     }
@@ -2318,7 +2324,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
             assert currentEngineReference.get() == null : "engine is running";
             verifyNotClosed();
             if (indexSettings.isRemoteStoreEnabled() && syncFromRemote) {
-                syncSegmentsFromRemoteSegmentStore(false, true, true);
+                syncSegmentsFromRemoteSegmentStore(false, true);
             }
             if (indexSettings.isRemoteTranslogStoreEnabled() && shardRouting.primary()) {
                 if (syncFromRemote) {
@@ -2336,6 +2342,11 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
             final Engine newEngine = engineFactory.newReadWriteEngine(config);
             onNewEngine(newEngine);
             currentEngineReference.set(newEngine);
+
+            if (indexSettings.isSegRepEnabled()) {
+                // set initial replication checkpoints into tracker.
+                updateReplicationCheckpoint();
+            }
             // We set active because we are now writing operations to the engine; this way,
             // we can flush if we go idle after some time and become inactive.
             active.set(true);
@@ -3163,7 +3174,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
      *
      * @return a map from allocation ID to the local knowledge of the global checkpoint for that allocation ID
      */
-    public ObjectLongMap<String> getInSyncGlobalCheckpoints() {
+    public Map<String, Long> getInSyncGlobalCheckpoints() {
         assert assertPrimaryMode();
         verifyNotClosed();
         return replicationTracker.getInSyncGlobalCheckpoints();
@@ -3184,7 +3195,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         final SeqNoStats stats = getEngine().getSeqNoStats(replicationTracker.getGlobalCheckpoint());
         final boolean asyncDurability = indexSettings().getTranslogDurability() == Durability.ASYNC;
         if (stats.getMaxSeqNo() == stats.getGlobalCheckpoint() || asyncDurability) {
-            final ObjectLongMap<String> globalCheckpoints = getInSyncGlobalCheckpoints();
+            final Map<String, Long> globalCheckpoints = getInSyncGlobalCheckpoints();
             final long globalCheckpoint = replicationTracker.getGlobalCheckpoint();
             // async durability means that the local checkpoint might lag (as it is only advanced on fsync)
             // periodically ask for the newest local checkpoint by syncing the global checkpoint, so that ultimately the global
@@ -3194,7 +3205,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
             final boolean syncNeeded = (asyncDurability
                 && (stats.getGlobalCheckpoint() < stats.getMaxSeqNo() || replicationTracker.pendingInSync()))
                 // check if the persisted global checkpoint
-                || StreamSupport.stream(globalCheckpoints.values().spliterator(), false).anyMatch(v -> v.value < globalCheckpoint);
+                || StreamSupport.stream(globalCheckpoints.values().spliterator(), false).anyMatch(v -> v < globalCheckpoint);
             // only sync if index is not closed and there is a shard lagging the primary
             if (syncNeeded && indexSettings.getIndexMetadata().getState() == IndexMetadata.State.OPEN) {
                 logger.trace("syncing global checkpoint for [{}]", reason);
@@ -3659,8 +3670,15 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
             }
         };
 
-        final List<ReferenceManager.RefreshListener> internalRefreshListener = new ArrayList<>();
+        internalRefreshListener.clear();
         internalRefreshListener.add(new RefreshMetricUpdater(refreshMetric));
+        if (indexSettings.isSegRepEnabled()) {
+            internalRefreshListener.add(new ReplicationCheckpointUpdater());
+        }
+        if (this.checkpointPublisher != null && shardRouting.primary() && indexSettings.isSegRepLocalEnabled()) {
+            internalRefreshListener.add(new CheckpointRefreshListener(this, this.checkpointPublisher));
+        }
+
         if (isRemoteStoreEnabled()) {
             internalRefreshListener.add(
                 new RemoteStoreRefreshListener(
@@ -3672,9 +3690,6 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
             );
         }
 
-        if (this.checkpointPublisher != null && shardRouting.primary() && indexSettings.isSegRepLocalEnabled()) {
-            internalRefreshListener.add(new CheckpointRefreshListener(this, this.checkpointPublisher));
-        }
         /**
          * With segment replication enabled for primary relocation, recover replica shard initially as read only and
          * change to a writeable engine during relocation handoff after a round of segment replication.
@@ -4280,12 +4295,9 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         boolean listenerNeedsRefresh = refreshListeners.refreshNeeded();
         if (isReadAllowed() && (listenerNeedsRefresh || getEngine().refreshNeeded())) {
             if (listenerNeedsRefresh == false // if we have a listener that is waiting for a refresh we need to force it
+                && isSearchIdleSupported()
                 && isSearchIdle()
                 && indexSettings.isExplicitRefresh() == false
-                && indexSettings.isSegRepEnabled() == false
-                // Indices with segrep enabled will never wait on a refresh and ignore shard idle. Primary shards push out new segments only
-                // after a refresh, so we don't want to wait for a search to trigger that cycle. Replicas will only refresh after receiving
-                // a new set of segments.
                 && active.get()) { // it must be active otherwise we might not free up segment memory once the shard became inactive
                 // lets skip this refresh since we are search idle and
                 // don't necessarily need to refresh. the next searcher access will register a refreshListener and that will
@@ -4311,6 +4323,19 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
      */
     public final boolean isSearchIdle() {
         return (threadPool.relativeTimeInMillis() - lastSearcherAccess.get()) >= indexSettings.getSearchIdleAfter().getMillis();
+    }
+
+    /**
+     *
+     * Returns true if this shard supports search idle.
+     *
+     * Indices using Segment Replication will ignore search idle unless there are no replicas.
+     * Primary shards push out new segments only
+     * after a refresh, so we don't want to wait for a search to trigger that cycle. Replicas will only refresh after receiving
+     * a new set of segments.
+     */
+    public final boolean isSearchIdleSupported() {
+        return indexSettings.isSegRepEnabled() == false || indexSettings.getNumberOfReplicas() == 0;
     }
 
     /**
@@ -4404,7 +4429,8 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
                 readAllowed = isReadAllowed();
             }
         }
-        if (readAllowed) {
+        // NRT Replicas will not accept refresh listeners.
+        if (readAllowed && isSegmentReplicationAllowed() == false) {
             refreshListeners.addOrNotify(location, listener);
         } else {
             // we're not yet ready fo ready for reads, just ignore refresh cycles
@@ -4450,6 +4476,30 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
                 callingThread = null;
             }
             refreshMetric.inc(System.nanoTime() - currentRefreshStartTime);
+        }
+    }
+
+    /**
+     * Refresh listener to update the Shard's ReplicationCheckpoint post refresh.
+     */
+    private class ReplicationCheckpointUpdater implements ReferenceManager.RefreshListener {
+        @Override
+        public void beforeRefresh() throws IOException {}
+
+        @Override
+        public void afterRefresh(boolean didRefresh) throws IOException {
+            if (didRefresh) {
+                updateReplicationCheckpoint();
+            }
+        }
+    }
+
+    private void updateReplicationCheckpoint() {
+        final Tuple<GatedCloseable<SegmentInfos>, ReplicationCheckpoint> tuple = getLatestSegmentInfosAndCheckpoint();
+        try (final GatedCloseable<SegmentInfos> ignored = tuple.v1()) {
+            replicationTracker.setLatestReplicationCheckpoint(tuple.v2());
+        } catch (IOException e) {
+            throw new OpenSearchException("Error Closing SegmentInfos Snapshot", e);
         }
     }
 
@@ -4535,7 +4585,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
             };
             IOUtils.close(currentEngineReference.getAndSet(readOnlyEngine));
             if (indexSettings.isRemoteStoreEnabled()) {
-                syncSegmentsFromRemoteSegmentStore(false, true, true);
+                syncSegmentsFromRemoteSegmentStore(false, true);
             }
             if (indexSettings.isRemoteTranslogStoreEnabled() && shardRouting.primary()) {
                 syncRemoteTranslogAndUpdateGlobalCheckpoint();
@@ -4589,20 +4639,18 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         TranslogFactory translogFactory = translogFactorySupplier.apply(indexSettings, shardRouting);
         assert translogFactory instanceof RemoteBlobStoreInternalTranslogFactory;
         Repository repository = ((RemoteBlobStoreInternalTranslogFactory) translogFactory).getRepository();
-        RemoteFsTranslog.download(repository, shardId, getThreadPool(), shardPath().resolveTranslog());
+        RemoteFsTranslog.download(repository, shardId, getThreadPool(), shardPath().resolveTranslog(), logger);
     }
 
     /**
      * Downloads segments from remote segment store.
      * @param overrideLocal flag to override local segment files with those in remote store
      * @param refreshLevelSegmentSync last refresh checkpoint is used if true, commit checkpoint otherwise
-     * @param shouldCommit if the shard requires committing the changes after sync from remote.
      * @throws IOException if exception occurs while reading segments from remote store
      */
-    public void syncSegmentsFromRemoteSegmentStore(boolean overrideLocal, boolean refreshLevelSegmentSync, boolean shouldCommit)
-        throws IOException {
+    public void syncSegmentsFromRemoteSegmentStore(boolean overrideLocal, boolean refreshLevelSegmentSync) throws IOException {
         assert indexSettings.isRemoteStoreEnabled();
-        logger.info("Downloading segments from remote segment store");
+        logger.trace("Downloading segments from remote segment store");
         RemoteSegmentStoreDirectory remoteDirectory = getRemoteDirectory();
         // We need to call RemoteSegmentStoreDirectory.init() in order to get latest metadata of the files that
         // are uploaded to the remote segment store.
@@ -4627,7 +4675,6 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
             } else {
                 storeDirectory = store.directory();
             }
-            Set<String> localSegmentFiles = Sets.newHashSet(storeDirectory.listAll());
             copySegmentFiles(storeDirectory, remoteDirectory, null, uploadedSegments, overrideLocal);
 
             if (refreshLevelSegmentSync && remoteSegmentMetadata != null) {
@@ -4641,34 +4688,8 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
                         indexInput,
                         remoteSegmentMetadata.getGeneration()
                     );
-                    if (shouldCommit) {
-                        long processedLocalCheckpoint = Long.parseLong(infosSnapshot.getUserData().get(LOCAL_CHECKPOINT_KEY));
-                        // Following code block makes sure to use SegmentInfosSnapshot in the remote store if generation differs
-                        // with local filesystem. If local filesystem already has segments_N+2 and infosSnapshot has generation N,
-                        // after commit, there would be 2 files that would be created segments_N+1 and segments_N+2. With the
-                        // policy of preserving only the latest commit, we will delete segments_N+1 which in fact is the part of the latest
-                        // commit.
-                        Optional<String> localMaxSegmentInfos = localSegmentFiles.stream()
-                            .filter(file -> file.startsWith(IndexFileNames.SEGMENTS))
-                            .max(Comparator.comparingLong(SegmentInfos::generationFromSegmentsFileName));
-                        if (localMaxSegmentInfos.isPresent()
-                            && infosSnapshot.getGeneration() < SegmentInfos.generationFromSegmentsFileName(localMaxSegmentInfos.get())
-                                - 1) {
-                            // If remote translog is not enabled, local translog will be created with different UUID.
-                            // This fails in Store.trimUnsafeCommits() as translog UUID of checkpoint and SegmentInfos needs
-                            // to be same. Following code block make sure to have the same UUID.
-                            if (indexSettings.isRemoteTranslogStoreEnabled() == false) {
-                                SegmentInfos localSegmentInfos = store.readLastCommittedSegmentsInfo();
-                                Map<String, String> userData = new HashMap<>(infosSnapshot.getUserData());
-                                userData.put(TRANSLOG_UUID_KEY, localSegmentInfos.userData.get(TRANSLOG_UUID_KEY));
-                                infosSnapshot.setUserData(userData, false);
-                            }
-                            storeDirectory.deleteFile(localMaxSegmentInfos.get());
-                        }
-                        store.commitSegmentInfos(infosSnapshot, processedLocalCheckpoint, processedLocalCheckpoint);
-                    } else {
-                        finalizeReplication(infosSnapshot);
-                    }
+                    long processedLocalCheckpoint = Long.parseLong(infosSnapshot.getUserData().get(LOCAL_CHECKPOINT_KEY));
+                    store.commitSegmentInfos(infosSnapshot, processedLocalCheckpoint, processedLocalCheckpoint);
                 }
             }
         } catch (IOException e) {
@@ -4693,7 +4714,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         long primaryTerm,
         long commitGeneration
     ) throws IOException {
-        logger.info("Downloading segments from given remote segment store");
+        logger.trace("Downloading segments from given remote segment store");
         RemoteSegmentStoreDirectory remoteDirectory = null;
         if (remoteStore != null) {
             remoteDirectory = getRemoteDirectory();
@@ -4761,7 +4782,6 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
                 long checksum = Long.parseLong(uploadedSegments.get(file).getChecksum());
                 if (overrideLocal || localDirectoryContains(storeDirectory, file, checksum) == false) {
                     storeDirectory.copyFrom(sourceRemoteDirectory, file, file, IOContext.DEFAULT);
-                    storeDirectory.sync(Collections.singleton(file));
                     downloadedSegments.add(file);
                 } else {
                     skippedSegments.add(file);
@@ -4787,6 +4807,14 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
                 return true;
             } else {
                 logger.warn("Checksum mismatch between local and remote segment file: {}, will override local file", file);
+                // If there is a checksum mismatch and we are not serving reads it is safe to go ahead and delete the file now.
+                // Outside of engine resets this method will be invoked during recovery so this is safe.
+                if (isReadAllowed() == false) {
+                    localDirectory.deleteFile(file);
+                } else {
+                    // segment conflict with remote store while the shard is serving reads.
+                    failShard("Local copy of segment " + file + " has a different checksum than the version in remote store", null);
+                }
             }
         } catch (NoSuchFileException | FileNotFoundException e) {
             logger.debug("File {} does not exist in local FS, downloading from remote store", file);

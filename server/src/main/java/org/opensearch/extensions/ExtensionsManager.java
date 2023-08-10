@@ -29,12 +29,12 @@ import org.opensearch.client.node.NodeClient;
 import org.opensearch.cluster.ClusterSettingsResponse;
 import org.opensearch.cluster.service.ClusterService;
 import org.opensearch.common.settings.Setting;
-import org.opensearch.core.common.Strings;
 import org.opensearch.common.util.concurrent.AbstractRunnable;
-import org.opensearch.common.io.stream.StreamInput;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.settings.SettingsModule;
-import org.opensearch.common.transport.TransportAddress;
+import org.opensearch.core.common.transport.TransportAddress;
+import org.opensearch.core.common.Strings;
+import org.opensearch.core.common.io.stream.StreamInput;
 
 import org.opensearch.discovery.InitializeExtensionRequest;
 import org.opensearch.discovery.InitializeExtensionResponse;
@@ -52,7 +52,7 @@ import org.opensearch.extensions.settings.RegisterCustomSettingsRequest;
 import org.opensearch.threadpool.ThreadPool;
 import org.opensearch.transport.ConnectTransportException;
 import org.opensearch.transport.TransportException;
-import org.opensearch.transport.TransportResponse;
+import org.opensearch.core.transport.TransportResponse;
 import org.opensearch.transport.TransportResponseHandler;
 import org.opensearch.transport.TransportService;
 import org.opensearch.env.EnvironmentSettingsResponse;
@@ -105,7 +105,7 @@ public class ExtensionsManager {
     /**
      * Instantiate a new ExtensionsManager object to handle requests and responses from extensions. This is called during Node bootstrap.
      *
-     * @param additionalSettings  Additional settings to read in from extensions.yml
+     * @param additionalSettings  Additional settings to read in from extension initialization request
      * @throws IOException  If the extensions discovery file is not properly retrieved.
      */
     public ExtensionsManager(Set<Setting<?>> additionalSettings) throws IOException {
@@ -503,5 +503,9 @@ public class ExtensionsManager {
 
     Settings getEnvironmentSettings() {
         return environmentSettings;
+    }
+
+    public Set<Setting<?>> getAdditionalSettings() {
+        return this.additionalSettings;
     }
 }

@@ -1204,25 +1204,47 @@ public class QueryPhaseTests extends IndexShardTestCase {
     }
 
     private static ContextIndexSearcher newContextSearcher(IndexReader reader, ExecutorService executor) throws IOException {
+        SearchContext searchContext = mock(SearchContext.class);
+        IndexShard indexShard = mock(IndexShard.class);
+        when(searchContext.indexShard()).thenReturn(indexShard);
+        when(searchContext.bucketCollectorProcessor()).thenReturn(SearchContext.NO_OP_BUCKET_COLLECTOR_PROCESSOR);
+        when(searchContext.isConcurrentSegmentSearchEnabled()).thenReturn(executor != null);
+        if (executor != null) {
+            when(searchContext.getTargetMaxSliceCount()).thenReturn(randomIntBetween(0, 2));
+        } else {
+            when(searchContext.getTargetMaxSliceCount()).thenThrow(IllegalStateException.class);
+        }
         return new ContextIndexSearcher(
             reader,
             IndexSearcher.getDefaultSimilarity(),
             IndexSearcher.getDefaultQueryCache(),
             IndexSearcher.getDefaultQueryCachingPolicy(),
             true,
-            executor
+            executor,
+            searchContext
         );
     }
 
     private static ContextIndexSearcher newEarlyTerminationContextSearcher(IndexReader reader, int size, ExecutorService executor)
         throws IOException {
+        SearchContext searchContext = mock(SearchContext.class);
+        IndexShard indexShard = mock(IndexShard.class);
+        when(searchContext.indexShard()).thenReturn(indexShard);
+        when(searchContext.bucketCollectorProcessor()).thenReturn(SearchContext.NO_OP_BUCKET_COLLECTOR_PROCESSOR);
+        when(searchContext.isConcurrentSegmentSearchEnabled()).thenReturn(executor != null);
+        if (executor != null) {
+            when(searchContext.getTargetMaxSliceCount()).thenReturn(randomIntBetween(0, 2));
+        } else {
+            when(searchContext.getTargetMaxSliceCount()).thenThrow(IllegalStateException.class);
+        }
         return new ContextIndexSearcher(
             reader,
             IndexSearcher.getDefaultSimilarity(),
             IndexSearcher.getDefaultQueryCache(),
             IndexSearcher.getDefaultQueryCachingPolicy(),
             true,
-            executor
+            executor,
+            searchContext
         ) {
 
             @Override

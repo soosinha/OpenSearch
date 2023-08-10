@@ -49,7 +49,7 @@ import org.opensearch.action.search.SearchPhaseExecutionException;
 import org.opensearch.action.search.SearchRequestBuilder;
 import org.opensearch.action.search.SearchResponse;
 import org.opensearch.action.search.ShardSearchFailure;
-import org.opensearch.action.support.DefaultShardOperationFailedException;
+import org.opensearch.core.action.support.DefaultShardOperationFailedException;
 import org.opensearch.action.support.broadcast.BroadcastResponse;
 import org.opensearch.action.support.master.AcknowledgedRequestBuilder;
 import org.opensearch.action.support.master.AcknowledgedResponse;
@@ -58,7 +58,7 @@ import org.opensearch.cluster.block.ClusterBlockException;
 import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.cluster.metadata.IndexTemplateMetadata;
 import org.opensearch.common.Nullable;
-import org.opensearch.common.bytes.BytesReference;
+import org.opensearch.core.common.bytes.BytesReference;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.core.xcontent.DeprecationHandler;
 import org.opensearch.core.xcontent.MediaType;
@@ -66,7 +66,7 @@ import org.opensearch.core.xcontent.NamedXContentRegistry;
 import org.opensearch.core.xcontent.ToXContent;
 import org.opensearch.core.xcontent.XContentBuilder;
 import org.opensearch.core.xcontent.XContentParser;
-import org.opensearch.rest.RestStatus;
+import org.opensearch.core.rest.RestStatus;
 import org.opensearch.search.SearchHit;
 import org.opensearch.search.suggest.Suggest;
 import org.opensearch.test.NotEqualMessageBuilder;
@@ -602,7 +602,7 @@ public class OpenSearchAssertions {
      * Run future.actionGet() and check that it throws an exception of the right type, optionally checking the exception's rest status
      *
      * @param exceptionClass expected exception class
-     * @param status         {@link org.opensearch.rest.RestStatus} to check for. Can be null to disable the check
+     * @param status         {@link RestStatus} to check for. Can be null to disable the check
      * @param extraInfo      extra information to add to the failure message. Can be null.
      */
     public static <E extends Throwable> void assertFutureThrows(
@@ -687,8 +687,7 @@ public class OpenSearchAssertions {
      * The comparison is done by parsing both into a map and comparing those two, so that keys ordering doesn't matter.
      * Also binary values (byte[]) are properly compared through arrays comparisons.
      */
-    public static void assertToXContentEquivalent(BytesReference expected, BytesReference actual, MediaType xContentType)
-        throws IOException {
+    public static void assertToXContentEquivalent(BytesReference expected, BytesReference actual, MediaType mediaType) throws IOException {
         // we tried comparing byte per byte, but that didn't fly for a couple of reasons:
         // 1) whenever anything goes through a map while parsing, ordering is not preserved, which is perfectly ok
         // 2) Jackson SMILE parser parses floats as double, which then get printed out as double (with double precision)
@@ -696,12 +695,12 @@ public class OpenSearchAssertions {
         Map<String, Object> actualMap = null;
         Map<String, Object> expectedMap = null;
         try (
-            XContentParser actualParser = xContentType.xContent()
+            XContentParser actualParser = mediaType.xContent()
                 .createParser(NamedXContentRegistry.EMPTY, DeprecationHandler.THROW_UNSUPPORTED_OPERATION, actual.streamInput())
         ) {
             actualMap = actualParser.map();
             try (
-                XContentParser expectedParser = xContentType.xContent()
+                XContentParser expectedParser = mediaType.xContent()
                     .createParser(NamedXContentRegistry.EMPTY, DeprecationHandler.THROW_UNSUPPORTED_OPERATION, expected.streamInput())
             ) {
                 expectedMap = expectedParser.map();

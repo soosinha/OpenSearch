@@ -17,11 +17,8 @@ import org.opensearch.search.query.ReduceableSearchResult;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Deque;
-import java.util.LinkedList;
 import java.util.List;
 
 /**
@@ -29,7 +26,7 @@ import java.util.List;
  * aggregation operators
  */
 class AggregationCollectorManager implements CollectorManager<Collector, ReduceableSearchResult> {
-    private final SearchContext context;
+    protected final SearchContext context;
     private final CheckedFunction<SearchContext, List<Aggregator>, IOException> aggProvider;
     private final String collectorReason;
 
@@ -53,31 +50,12 @@ class AggregationCollectorManager implements CollectorManager<Collector, Reducea
 
     @Override
     public ReduceableSearchResult reduce(Collection<Collector> collectors) throws IOException {
-        List<Aggregator> aggregators = new ArrayList<>();
-
-        final Deque<Collector> allCollectors = new LinkedList<>(collectors);
-        while (!allCollectors.isEmpty()) {
-            final Collector currentCollector = allCollectors.pop();
-            if (currentCollector instanceof Aggregator) {
-                aggregators.add((Aggregator) currentCollector);
-            } else if (currentCollector instanceof InternalProfileCollector) {
-                if (((InternalProfileCollector) currentCollector).getCollector() instanceof Aggregator) {
-                    aggregators.add((Aggregator) ((InternalProfileCollector) currentCollector).getCollector());
-                } else if (((InternalProfileCollector) currentCollector).getCollector() instanceof MultiBucketCollector) {
-                    allCollectors.addAll(
-                        Arrays.asList(((MultiBucketCollector) ((InternalProfileCollector) currentCollector).getCollector()).getCollectors())
-                    );
-                }
-            } else if (currentCollector instanceof MultiBucketCollector) {
-                allCollectors.addAll(Arrays.asList(((MultiBucketCollector) currentCollector).getCollectors()));
-            }
-        }
-
+        final List<Aggregator> aggregators = context.bucketCollectorProcessor().toAggregators(collectors);
         final List<InternalAggregation> internals = new ArrayList<>(aggregators.size());
         context.aggregations().resetBucketMultiConsumer();
         for (Aggregator aggregator : aggregators) {
             try {
-                aggregator.postCollection();
+                // post collection is called in ContextIndexSearcher after search on leaves are completed
                 internals.add(aggregator.buildTopLevel());
             } catch (IOException e) {
                 throw new AggregationExecutionException("Failed to build aggregation [" + aggregator.name() + "]", e);
@@ -85,18 +63,11 @@ class AggregationCollectorManager implements CollectorManager<Collector, Reducea
         }
 
         final InternalAggregations internalAggregations = InternalAggregations.from(internals);
-        // Reduce the aggregations across slices before sending to the coordinator. We will perform shard level reduce iff multiple slices
-        // were created to execute this request and it used concurrent segment search path
-        // TODO: Add the check for flag that the request was executed using concurrent search
-        if (collectors.size() > 1) {
-            // using reduce is fine here instead of topLevelReduce as pipeline aggregation is evaluated on the coordinator after all
-            // documents are collected across shards for an aggregation
-            return new AggregationReduceableSearchResult(
-                InternalAggregations.reduce(Collections.singletonList(internalAggregations), context.partial())
-            );
-        } else {
-            return new AggregationReduceableSearchResult(internalAggregations);
-        }
+        return buildAggregationResult(internalAggregations);
+    }
+
+    protected AggregationReduceableSearchResult buildAggregationResult(InternalAggregations internalAggregations) {
+        return new AggregationReduceableSearchResult(internalAggregations);
     }
 
     static Collector createCollector(SearchContext context, List<Aggregator> collectors, String reason) throws IOException {

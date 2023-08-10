@@ -32,8 +32,8 @@
 
 package org.opensearch.action;
 
-import org.opensearch.common.io.stream.StreamInput;
-import org.opensearch.transport.TransportResponse;
+import org.opensearch.core.common.io.stream.StreamInput;
+import org.opensearch.core.transport.TransportResponse;
 
 import java.io.IOException;
 

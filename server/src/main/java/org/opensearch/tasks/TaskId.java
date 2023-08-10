@@ -33,10 +33,10 @@
 package org.opensearch.tasks;
 
 import org.opensearch.OpenSearchParseException;
-import org.opensearch.common.Strings;
-import org.opensearch.common.io.stream.StreamInput;
-import org.opensearch.common.io.stream.StreamOutput;
-import org.opensearch.common.io.stream.Writeable;
+import org.opensearch.core.common.Strings;
+import org.opensearch.core.common.io.stream.StreamInput;
+import org.opensearch.core.common.io.stream.StreamOutput;
+import org.opensearch.core.common.io.stream.Writeable;
 import org.opensearch.core.xcontent.ContextParser;
 import org.opensearch.core.xcontent.XContentParser;
 
@@ -71,7 +71,7 @@ public final class TaskId implements Writeable {
     }
 
     public TaskId(String taskId) {
-        if (org.opensearch.core.common.Strings.hasLength(taskId) && "unset".equals(taskId) == false) {
+        if (Strings.hasLength(taskId) && "unset".equals(taskId) == false) {
             String[] s = Strings.split(taskId, ":");
             if (s == null || s.length != 2) {
                 throw new IllegalArgumentException("malformed task id " + taskId);

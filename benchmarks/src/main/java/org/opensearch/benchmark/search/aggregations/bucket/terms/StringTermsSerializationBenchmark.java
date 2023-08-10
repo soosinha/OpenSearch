@@ -34,7 +34,7 @@ package org.opensearch.benchmark.search.aggregations.bucket.terms;
 
 import org.apache.lucene.util.BytesRef;
 import org.opensearch.common.io.stream.DelayableWriteable;
-import org.opensearch.common.io.stream.NamedWriteableRegistry;
+import org.opensearch.core.common.io.stream.NamedWriteableRegistry;
 import org.opensearch.search.DocValueFormat;
 import org.opensearch.search.aggregations.BucketOrder;
 import org.opensearch.search.aggregations.InternalAggregation;
@@ -51,6 +51,7 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
+import org.opensearch.search.aggregations.bucket.terms.TermsAggregator;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -86,15 +87,14 @@ public class StringTermsSerializationBenchmark {
             "test",
             BucketOrder.key(true),
             BucketOrder.key(true),
-            buckets,
-            1,
             null,
             DocValueFormat.RAW,
             buckets,
             false,
             100000,
             resultBuckets,
-            0
+            0,
+            new TermsAggregator.BucketCountThresholds(1, 0, buckets, buckets)
         );
     }
 
