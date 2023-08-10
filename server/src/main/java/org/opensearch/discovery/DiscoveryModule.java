@@ -208,7 +208,6 @@ public class DiscoveryModule {
                 rerouteService,
                 electionStrategy,
                 nodeHealthService,
-                remoteClusterStateService,
                 gatewayMetaState::getRemotePersistedState
             );
         } else {

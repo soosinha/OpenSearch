@@ -4,14 +4,19 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import org.opensearch.common.io.stream.StreamOutput;
-import org.opensearch.common.io.stream.Writeable;
 import org.opensearch.core.ParseField;
+import org.opensearch.core.common.io.stream.StreamOutput;
+import org.opensearch.core.common.io.stream.Writeable;
 import org.opensearch.core.xcontent.ConstructingObjectParser;
 import org.opensearch.core.xcontent.ToXContentFragment;
 import org.opensearch.core.xcontent.XContentBuilder;
 import org.opensearch.core.xcontent.XContentParser;
 
+/**
+ * Marker file which contains the details of the uploaded entity metadata
+ *
+ * @opensearch.internal
+ */
 public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
 
     private static final ParseField INDICES_FIELD = new ParseField("indices");
@@ -101,6 +106,11 @@ public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
         return PARSER.parse(parser, null);
     }
 
+    /**
+     * Builder for ClusterMetadataMarker
+     *
+     * @opensearch.internal
+     */
     public static class Builder {
 
         private final Map<String, UploadedIndexMetadata> indices;
@@ -140,20 +150,39 @@ public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
 
     }
 
+    /**
+     * Metadata for uploaded index metadata
+     *
+     * @opensearch.internal
+     */
     public static class UploadedIndexMetadata implements Writeable, ToXContentFragment {
 
+        private static final ParseField INDEX_NAME_FIELD = new ParseField("index_name");
+        private static final ParseField INDEX_UUID_FIELD = new ParseField("index_uuid");
         private static final ParseField UPLOADED_FILENAME_FIELD = new ParseField("uploaded_filename");
 
-        private static String uploadedFilename(Object[] fields) {
+        private static String indexName(Object[] fields) {
             return (String) fields[0];
         }
 
-        private static final ConstructingObjectParser<UploadedIndexMetadata, Void> PARSER = new ConstructingObjectParser<>("uploaded_index_metadata",
-            fields -> new UploadedIndexMetadata(uploadedFilename(fields)));
+        private static String indexUUID(Object[] fields) {
+            return (String) fields[1];
+        }
 
+        private static String uploadedFilename(Object[] fields) {
+            return (String) fields[2];
+        }
+
+        private static final ConstructingObjectParser<UploadedIndexMetadata, Void> PARSER = new ConstructingObjectParser<>("uploaded_index_metadata",
+            fields -> new UploadedIndexMetadata(indexName(fields), indexUUID(fields), uploadedFilename(fields)));
+
+        private final String indexName;
+        private final String indexUUID;
         private final String uploadedFilename;
 
-        public UploadedIndexMetadata(String uploadedFileName) {
+        public UploadedIndexMetadata(String indexName, String indexUUID, String uploadedFileName) {
+            this.indexName = indexName;
+            this.indexUUID = indexUUID;
             this.uploadedFilename = uploadedFileName;
         }
 
@@ -161,9 +190,19 @@ public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
             return uploadedFilename;
         }
 
+        public String getIndexName() {
+            return indexName;
+        }
+
+        public String getIndexUUID() {
+            return indexUUID;
+        }
+
         @Override
         public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
-            return builder.field(UPLOADED_FILENAME_FIELD.getPreferredName(), getUploadedFilename());
+            return builder.startObject()
+                .field(UPLOADED_FILENAME_FIELD.getPreferredName(), getUploadedFilename())
+                .endObject();
         }
 
         @Override
