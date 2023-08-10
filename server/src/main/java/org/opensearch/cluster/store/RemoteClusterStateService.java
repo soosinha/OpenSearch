@@ -15,6 +15,8 @@ import org.opensearch.common.blobstore.BlobContainer;
 import org.opensearch.common.blobstore.BlobMetadata;
 import org.opensearch.cluster.store.ClusterMetadataMarker.UploadedIndexMetadata;
 import org.opensearch.common.settings.Settings;
+import org.opensearch.core.common.io.stream.InputStreamStreamInput;
+import org.opensearch.core.common.io.stream.StreamInput;
 import org.opensearch.indices.IndicesService;
 import org.opensearch.repositories.RepositoriesService;
 import org.opensearch.repositories.Repository;
@@ -225,5 +227,16 @@ public class RemoteClusterStateService {
             logger.error("error while fetching marker file for remote cluster state", e);
         }
         return null;
+    }
+
+    public Map<String, IndexMetadata> getLatestIndexMetadata(String clusterUUID, String clusterName) throws IOException {
+        Map<String, IndexMetadata> remoteIndexMetadata = new HashMap<>();
+        ClusterMetadataMarker clusterMetadataMarker = getLatestClusterMetadataMarker(clusterUUID, clusterName);
+        for (Map.Entry<String, UploadedIndexMetadata> entry: clusterMetadataMarker.getIndices().entrySet()) {
+            IndexMetadata indexMetadata = IndexMetadata.readFrom(new InputStreamStreamInput(
+                getMarkerBlobContainer(clusterUUID, clusterName).readBlob(entry.getValue().getUploadedFilename())));
+            remoteIndexMetadata.put(entry.getKey(), indexMetadata);
+        }
+        return remoteIndexMetadata;
     }
 }
