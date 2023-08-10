@@ -3387,16 +3387,4 @@ public abstract class BlobStoreRepository extends AbstractLifecycleComponent imp
             this.blobsToDelete = blobsToDelete;
         }
     }
-
-    public List<BlobMetadata> listBlobsByPrefixInSortedOrder(
-        String blobNamePrefix,
-        int limit,
-        BlobContainer.BlobNameSortOrder blobNameSortOrder
-    ) throws IOException {
-        return blobContainer().listBlobsByPrefixInSortedOrder(blobNamePrefix, limit, blobNameSortOrder);
-    }
-
-    public ClusterMetadataMarker readClusterMetadata(String filename) throws IOException {
-        return CLUSTER_METADATA_MARKER_FORMAT.read(blobContainer(), filename, namedXContentRegistry);
-    }
 }

@@ -192,7 +192,7 @@ public class RemoteClusterStateService {
     }
 
     public ClusterMetadataMarker getLatestClusterMetadataMarker(String clusterUUID, String clusterState) {
-        String latestMarkerFileName = getLatestMarkerFileName();
+        String latestMarkerFileName = getLatestMarkerFileName(clusterUUID, clusterState);
         return fetchRemoteClusterMetadataMarker(latestMarkerFileName, clusterUUID, clusterState);
     }
 
@@ -211,9 +211,9 @@ public class RemoteClusterStateService {
         return null;
     }
 
-    public String getLatestMarkerFileName() {
+    public String getLatestMarkerFileName(String clusterUUID, String clusterState) {
         try {
-            List<BlobMetadata> markerFilesMetadata = blobStoreRepository.listBlobsByPrefixInSortedOrder(
+            List<BlobMetadata> markerFilesMetadata = getMarkerBlobContainer(clusterUUID, clusterState).listBlobsByPrefixInSortedOrder(
                 "marker",
                 1,
                 BlobContainer.BlobNameSortOrder.LEXICOGRAPHIC
