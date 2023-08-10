@@ -32,8 +32,8 @@
 
 package org.opensearch.common.blobstore;
 
+import org.opensearch.core.action.ActionListener;
 import org.apache.logging.log4j.message.ParameterizedMessage;
-import org.opensearch.action.ActionListener;
 import org.opensearch.action.LatchedActionListener;
 
 import java.io.IOException;
