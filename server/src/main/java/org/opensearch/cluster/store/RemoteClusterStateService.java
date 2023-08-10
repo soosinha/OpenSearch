@@ -4,14 +4,16 @@ import static org.opensearch.indices.IndicesService.CLUSTER_REMOTE_STATE_REPOSIT
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.metadata.IndexMetadata;
-import org.opensearch.cluster.store.ClusterMetadataMarker.UploadedIndexMetadata;
 import org.opensearch.common.blobstore.BlobContainer;
+import org.opensearch.common.blobstore.BlobMetadata;
+import org.opensearch.cluster.store.ClusterMetadataMarker.UploadedIndexMetadata;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.indices.IndicesService;
 import org.opensearch.repositories.RepositoriesService;
@@ -184,5 +186,44 @@ public class RemoteClusterStateService {
         return String.join(DELIMITER, "metadata", String.valueOf(indexMetadata.getVersion()), String.valueOf(System.currentTimeMillis()));
     }
 
+    private BlobContainer getMarkerBlobContainer(String clusterUUID, String clusterName) {
+        return blobStoreRepository.blobStore()
+            .blobContainer(blobStoreRepository.basePath().add(clusterName).add("cluster-state").add(clusterUUID).add("marker"));
+    }
 
+    public ClusterMetadataMarker getLatestClusterMetadataMarker(String clusterUUID, String clusterState) {
+        String latestMarkerFileName = getLatestMarkerFileName();
+        return fetchRemoteClusterMetadataMarker(latestMarkerFileName, clusterUUID, clusterState);
+    }
+
+    public ClusterMetadataMarker fetchRemoteClusterMetadataMarker(String filename, String clusterUUID, String clusterState) {
+        try {
+            // We would be creating a new repository for RemoteClusterState which would hold this logic. We would also not not need to have
+            // getNamedXContentRegistry method in blobStoreRepository
+            return RemoteClusterStateService.CLUSTER_METADATA_MARKER_FORMAT.read(
+                getMarkerBlobContainer(clusterUUID, clusterState),
+                filename,
+                blobStoreRepository.getNamedXContentRegistry()
+            );
+        } catch (IOException e) {
+            logger.error("Error while downloading ClusterMetadataMarker", e);
+        }
+        return null;
+    }
+
+    public String getLatestMarkerFileName() {
+        try {
+            List<BlobMetadata> markerFilesMetadata = blobStoreRepository.listBlobsByPrefixInSortedOrder(
+                "marker",
+                1,
+                BlobContainer.BlobNameSortOrder.LEXICOGRAPHIC
+            );
+            if (markerFilesMetadata != null && !markerFilesMetadata.isEmpty()) {
+                return markerFilesMetadata.get(0).name();
+            }
+        } catch (IOException e) {
+            logger.error("error while fetching marker file for remote cluster state", e);
+        }
+        return null;
+    }
 }

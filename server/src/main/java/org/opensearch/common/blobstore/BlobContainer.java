@@ -32,7 +32,9 @@
 
 package org.opensearch.common.blobstore;
 
+import org.apache.logging.log4j.message.ParameterizedMessage;
 import org.opensearch.action.ActionListener;
+import org.opensearch.action.LatchedActionListener;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -42,6 +44,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * An interface for managing a repository of blob entries, where each blob entry is just a named group of bytes.
@@ -227,15 +231,23 @@ public interface BlobContainer {
         BlobNameSortOrder blobNameSortOrder,
         ActionListener<List<BlobMetadata>> listener
     ) {
-        if (limit < 0) {
-            throw new IllegalArgumentException("limit should not be a negative value");
-        }
         try {
-            List<BlobMetadata> blobNames = new ArrayList<>(listBlobsByPrefix(blobNamePrefix).values());
-            blobNames.sort(blobNameSortOrder.comparator());
-            listener.onResponse(blobNames.subList(0, Math.min(blobNames.size(), limit)));
+            listener.onResponse(listBlobsByPrefixInSortedOrder(blobNamePrefix, limit, blobNameSortOrder));
         } catch (Exception e) {
             listener.onFailure(e);
         }
+    }
+
+    default List<BlobMetadata> listBlobsByPrefixInSortedOrder(
+        String blobNamePrefix,
+        int limit,
+        BlobNameSortOrder blobNameSortOrder
+    ) throws IOException {
+        if (limit < 0) {
+            throw new IllegalArgumentException("limit should not be a negative value");
+        }
+        List<BlobMetadata> blobNames = new ArrayList<>(listBlobsByPrefix(blobNamePrefix).values());
+        blobNames.sort(blobNameSortOrder.comparator());
+        return blobNames.subList(0, Math.min(blobNames.size(), limit));
     }
 }
