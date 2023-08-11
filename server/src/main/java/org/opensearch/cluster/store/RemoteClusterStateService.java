@@ -26,7 +26,7 @@ import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
  */
 public class RemoteClusterStateService {
 
-    public static final String METADATA_NAME_FORMAT = "meta-%s.dat";
+    public static final String METADATA_NAME_FORMAT = "%s.dat";
 
     public static final String METADATA_MARKER_NAME_FORMAT = "%s";
 
@@ -54,15 +54,15 @@ public class RemoteClusterStateService {
         this.settings = settings;
     }
 
-    public void writeFullMetadata(long currentTerm, ClusterState clusterState) throws IOException {
+    public ClusterMetadataMarker writeFullMetadata(long currentTerm, ClusterState clusterState) throws IOException {
         if (!clusterState.nodes().isLocalNodeElectedClusterManager()) {
             logger.error("Local node is not elected cluster manager. Exiting");
-            return;
+            return null;
         }
         setRepository();
         if (blobStoreRepository == null) {
             logger.error("Unable to set repository");
-            return;
+            return null;
         }
 
         final Map<String, ClusterMetadataMarker.UploadedIndexMetadata> allUploadedIndexMetadata = new HashMap<>();
@@ -70,13 +70,13 @@ public class RemoteClusterStateService {
         // any validations before/after upload ?
         for (IndexMetadata indexMetadata : clusterState.metadata().indices().values()) {
             //123456789012_test-cluster/cluster-state/dsgYj10Nkso7/index/ftqsCnn9TgOX/metadata_4_1690947200
-            String indexMetadataKey = writeIndexMetadata(clusterState.getClusterName().value(), clusterState.getMetadata().clusterUUID(),
+            final String indexMetadataKey = writeIndexMetadata(clusterState.getClusterName().value(), clusterState.getMetadata().clusterUUID(),
                 indexMetadata, indexMetadataFileName(indexMetadata));
-            UploadedIndexMetadata uploadedIndexMetadata = new UploadedIndexMetadata(indexMetadata.getIndex().getName(), indexMetadata.getIndexUUID(),
+            final UploadedIndexMetadata uploadedIndexMetadata = new UploadedIndexMetadata(indexMetadata.getIndex().getName(), indexMetadata.getIndexUUID(),
                 indexMetadataKey);
             allUploadedIndexMetadata.put(indexMetadata.getIndex().getName(), uploadedIndexMetadata);
         }
-        uploadMarker(clusterState, allUploadedIndexMetadata);
+        return uploadMarker(clusterState, allUploadedIndexMetadata);
     }
 
     private void setRepository() {
@@ -97,8 +97,38 @@ public class RemoteClusterStateService {
         }
     }
 
-    public void writeIncrementalMetadata(long currentTerm, ClusterState previousClusterState, ClusterState clusterState) {
-        //todo
+    public ClusterMetadataMarker writeIncrementalMetadata(long currentTerm, ClusterState previousClusterState, ClusterState clusterState, ClusterMetadataMarker previousMarker) throws IOException {
+        assert previousClusterState.metadata().coordinationMetadata().term() == clusterState.metadata().coordinationMetadata().term();
+        final Map<String, Long> indexMetadataVersionByName = new HashMap<>();
+        for (final IndexMetadata indexMetadata : previousClusterState.metadata().indices().values()) {
+            indexMetadataVersionByName.putIfAbsent(indexMetadata.getIndex().getName(), indexMetadata.getVersion());
+        }
+
+        int numIndicesUpdated = 0;
+        int numIndicesUnchanged = 0;
+        final Map<String, ClusterMetadataMarker.UploadedIndexMetadata> allUploadedIndexMetadata = new HashMap<>(previousMarker.getIndices());
+        for (final IndexMetadata indexMetadata : clusterState.metadata().indices().values()) {
+            // Is it okay to use indexName as key ?
+            final Long previousVersion = indexMetadataVersionByName.get(indexMetadata.getIndex().getName());
+            if (previousVersion == null || indexMetadata.getVersion() != previousVersion) {
+                logger.trace("updating metadata for [{}], changing version from [{}] to [{}]", indexMetadata.getIndex(), previousVersion,
+                    indexMetadata.getVersion());
+                numIndicesUpdated++;
+                String indexMetadataKey = writeIndexMetadata(clusterState.getClusterName().value(), clusterState.getMetadata().clusterUUID(),
+                    indexMetadata, indexMetadataFileName(indexMetadata));
+                UploadedIndexMetadata uploadedIndexMetadata = new UploadedIndexMetadata(indexMetadata.getIndex().getName(), indexMetadata.getIndexUUID(),
+                    indexMetadataKey);
+                allUploadedIndexMetadata.put(indexMetadata.getIndex().getName(), uploadedIndexMetadata);
+            } else {
+                numIndicesUnchanged++;
+            }
+            indexMetadataVersionByName.remove(indexMetadata.getIndex().getName());
+        }
+
+        for (String removedIndexName : indexMetadataVersionByName.keySet()) {
+            allUploadedIndexMetadata.remove(removedIndexName);
+        }
+        return uploadMarker(clusterState, allUploadedIndexMetadata);
     }
 
     public ClusterState getLatestClusterState(String clusterUUID) {
@@ -107,13 +137,14 @@ public class RemoteClusterStateService {
     }
 
     //todo exception handling
-    public void uploadMarker(ClusterState clusterState, Map<String, ClusterMetadataMarker.UploadedIndexMetadata> uploadedIndexMetadata) throws IOException {
+    public ClusterMetadataMarker uploadMarker(ClusterState clusterState, Map<String, ClusterMetadataMarker.UploadedIndexMetadata> uploadedIndexMetadata) throws IOException {
         synchronized (this) {
             String markerFileName = getMarkerFileName(clusterState.term(), clusterState.version());
             ClusterMetadataMarker marker = new ClusterMetadataMarker(uploadedIndexMetadata, clusterState.term(), clusterState.getVersion(),
                 clusterState.metadata().clusterUUID(),
                 clusterState.stateUUID());
             writeMetadataMarker(clusterState.getClusterName().value(), clusterState.metadata().clusterUUID(), marker, markerFileName);
+            return marker;
         }
     }
 
@@ -131,8 +162,8 @@ public class RemoteClusterStateService {
 
     private static String getMarkerFileName(long term, long version) {
         //123456789012_test-cluster/cluster-state/dsgYj10Nkso7/marker/2147483642_2147483637_456536447_marker
-        return String.join(DELIMITER, String.valueOf(Long.MAX_VALUE - term), String.valueOf(Long.MAX_VALUE - version),
-            String.valueOf(Long.MAX_VALUE - System.currentTimeMillis()), "marker");
+        return String.join(DELIMITER,"marker", String.valueOf(Long.MAX_VALUE - term), String.valueOf(Long.MAX_VALUE - version),
+            String.valueOf(Long.MAX_VALUE - System.currentTimeMillis()));
     }
 
 
