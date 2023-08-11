@@ -63,7 +63,6 @@ import org.opensearch.cluster.node.DiscoveryNode;
 import org.opensearch.cluster.routing.allocation.AllocationService;
 import org.opensearch.cluster.service.ClusterManagerTaskThrottler;
 import org.opensearch.cluster.service.ClusterService;
-import org.opensearch.cluster.store.ClusterMetadataMarker;
 import org.opensearch.common.Nullable;
 import org.opensearch.common.Numbers;
 import org.opensearch.common.SetOnce;
@@ -202,8 +201,6 @@ public abstract class BlobStoreRepository extends AbstractLifecycleComponent imp
 
     public static final String METADATA_NAME_FORMAT = METADATA_PREFIX + "%s.dat";
 
-    public static final String METADATA_MARKER_NAME_FORMAT = "%s";
-
     public static final String SNAPSHOT_NAME_FORMAT = SNAPSHOT_PREFIX + "%s.dat";
 
     public static final String SHALLOW_SNAPSHOT_NAME_FORMAT = SHALLOW_SNAPSHOT_PREFIX + "%s.dat";
@@ -308,17 +305,10 @@ public abstract class BlobStoreRepository extends AbstractLifecycleComponent imp
         Metadata::fromXContent
     );
 
-    //TODO name format to be changed
     public static final ChecksumBlobStoreFormat<IndexMetadata> INDEX_METADATA_FORMAT = new ChecksumBlobStoreFormat<>(
         "index-metadata",
         METADATA_NAME_FORMAT,
         IndexMetadata::fromXContent
-    );
-
-    public static final ChecksumBlobStoreFormat<ClusterMetadataMarker> CLUSTER_METADATA_MARKER_FORMAT = new ChecksumBlobStoreFormat<>(
-        "cluster-metadata-marker",
-        METADATA_MARKER_NAME_FORMAT,
-        ClusterMetadataMarker::fromXContent
     );
 
     private static final String SNAPSHOT_CODEC = "snapshot";
@@ -1765,16 +1755,6 @@ public abstract class BlobStoreRepository extends AbstractLifecycleComponent imp
         return blobStore().blobContainer(indicesPath().add(indexId.getId()).add(Integer.toString(shardId)));
     }
 
-    public BlobContainer indexMetadataContainer(String clusterName, String clusterUUID, String indexUUID) {
-        //123456789012_test-cluster/cluster-state/dsgYj10Nkso7/index/ftqsCnn9TgOX
-        return blobStore().blobContainer(basePath().add(clusterName).add("cluster-state").add(clusterUUID).add("index").add(indexUUID));
-    }
-
-    public BlobContainer markerContainer(String clusterName, String clusterUUID) {
-        //123456789012_test-cluster/cluster-state/dsgYj10Nkso7/marker
-        return blobStore().blobContainer(basePath().add(clusterName).add("cluster-state").add(clusterUUID).add("marker"));
-    }
-
     /**
      * Configures RateLimiter based on repository and global settings
      *
@@ -3117,18 +3097,6 @@ public abstract class BlobStoreRepository extends AbstractLifecycleComponent imp
                 throw new RepositoryVerificationException(metadata.name(), "Failed to verify repository", e);
             }
         }
-    }
-
-    public String writeIndexMetadata(String clusterName, String clusterUUID, IndexMetadata indexMetadata, String fileName) throws IOException {
-        BlobContainer indexMetadataContainer = indexMetadataContainer(clusterName, clusterUUID, indexMetadata.getIndexUUID());
-        INDEX_METADATA_FORMAT.write(indexMetadata, indexMetadataContainer, fileName, compressor);
-        // returning full path
-        return indexMetadataContainer.path().buildAsString() + fileName;
-    }
-
-    public void writeMetadataMarker(String clusterName, String clusterUUID, ClusterMetadataMarker marker, String fileName) throws IOException {
-        BlobContainer metadataMarkerContainer = markerContainer(clusterName, clusterUUID);
-        CLUSTER_METADATA_MARKER_FORMAT.write(marker, metadataMarkerContainer, fileName, compressor);
     }
 
     @Override
