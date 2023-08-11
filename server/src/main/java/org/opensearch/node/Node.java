@@ -216,7 +216,6 @@ import org.opensearch.search.fetch.FetchPhase;
 import org.opensearch.search.query.QueryPhase;
 import org.opensearch.snapshots.InternalSnapshotsInfoService;
 import org.opensearch.snapshots.RestoreService;
-import org.opensearch.snapshots.RemoteStoreRestoreService;
 import org.opensearch.snapshots.SnapshotsService;
 import org.opensearch.snapshots.SnapshotShardsService;
 import org.opensearch.snapshots.SnapshotsInfoService;
@@ -948,10 +947,6 @@ public class Node implements Closeable {
                 shardLimitValidator,
                 indicesService,
                 clusterInfoService::getClusterInfo
-            );
-            RemoteStoreRestoreService remoteStoreRestoreService = new RemoteStoreRestoreService(
-                clusterService,
-                clusterModule.getAllocationService()
             );
 
             RemoteStoreRestoreService remoteStoreRestoreService = new RemoteStoreRestoreService(
