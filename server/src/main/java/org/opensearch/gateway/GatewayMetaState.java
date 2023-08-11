@@ -52,6 +52,7 @@ import org.opensearch.cluster.metadata.Metadata;
 import org.opensearch.cluster.metadata.MetadataIndexUpgradeService;
 import org.opensearch.cluster.node.DiscoveryNode;
 import org.opensearch.cluster.service.ClusterService;
+import org.opensearch.cluster.store.ClusterMetadataMarker;
 import org.opensearch.cluster.store.RemoteClusterStateService;
 import org.opensearch.common.SetOnce;
 import org.opensearch.common.collect.Tuple;
@@ -86,20 +87,21 @@ import static org.opensearch.common.util.concurrent.OpenSearchExecutors.daemonTh
 /**
  * Loads (and maybe upgrades) cluster metadata at startup, and persistently stores cluster metadata for future restarts.
  *
- * When started, ensures that this version is compatible with the state stored on disk, and performs a state upgrade if necessary. Note that
- * the state being loaded when constructing the instance of this class is not necessarily the state that will be used as {@link
- * ClusterState#metadata()} because it might be stale or incomplete. Cluster-manager-eligible nodes must perform an election to find a complete and
- * non-stale state, and cluster-manager-ineligible nodes receive the real cluster state from the elected cluster-manager after joining the cluster.
+ * When started, ensures that this version is compatible with the state stored on disk, and performs a state upgrade if necessary. Note that the state being
+ * loaded when constructing the instance of this class is not necessarily the state that will be used as {@link ClusterState#metadata()} because it might be
+ * stale or incomplete. Cluster-manager-eligible nodes must perform an election to find a complete and non-stale state, and cluster-manager-ineligible nodes
+ * receive the real cluster state from the elected cluster-manager after joining the cluster.
  *
  * @opensearch.internal
  */
 public class GatewayMetaState implements Closeable {
+
     private static final Logger logger = LogManager.getLogger(GatewayMetaState.class);
 
     /**
-     * Fake node ID for a voting configuration written by a cluster-manager-ineligible data node to indicate that its on-disk state is potentially
-     * stale (since it is written asynchronously after application, rather than before acceptance). This node ID means that if the node is
-     * restarted as a cluster-manager-eligible node then it does not win any elections until it has received a fresh cluster state.
+     * Fake node ID for a voting configuration written by a cluster-manager-ineligible data node to indicate that its on-disk state is potentially stale (since
+     * it is written asynchronously after application, rather than before acceptance). This node ID means that if the node is restarted as a
+     * cluster-manager-eligible node then it does not win any elections until it has received a fresh cluster state.
      */
     public static final String STALE_STATE_CONFIG_NODE_ID = "STALE_STATE_CONFIG";
 
@@ -248,8 +250,8 @@ public class GatewayMetaState implements Closeable {
     }
 
     /**
-     * This method calls {@link MetadataIndexUpgradeService} to makes sure that indices are compatible with the current
-     * version. The MetadataIndexUpgradeService might also update obsolete settings if needed.
+     * This method calls {@link MetadataIndexUpgradeService} to makes sure that indices are compatible with the current version. The MetadataIndexUpgradeService
+     * might also update obsolete settings if needed.
      *
      * @return input <code>metadata</code> if no upgrade is needed or an upgraded metadata
      */
@@ -622,7 +624,9 @@ public class GatewayMetaState implements Closeable {
         //todo check diff between currentTerm and clusterState term
         private long currentTerm;
         private ClusterState lastAcceptedState;
+        private ClusterMetadataMarker lastAcceptedMarker;
         private final RemoteClusterStateService remoteClusterStateService;
+        //todo Is this needed?
         private boolean writeNextStateFully;
 
         public RemotePersistedState(final RemoteClusterStateService remoteClusterStateService, final long currentTerm, final ClusterState lastAcceptedState) {
@@ -635,7 +639,6 @@ public class GatewayMetaState implements Closeable {
 
         public RemotePersistedState(final RemoteClusterStateService remoteClusterStateService) {
             this.remoteClusterStateService = remoteClusterStateService;
-            this.writeNextStateFully = true;
         }
 
         @Override
@@ -656,20 +659,24 @@ public class GatewayMetaState implements Closeable {
         @Override
         public void setLastAcceptedState(ClusterState clusterState) {
             try {
-//                if (writeNextStateFully) {
-                    remoteClusterStateService.writeFullMetadata(currentTerm, clusterState);
-//                    writeNextStateFully = false;
-//                } else {
-//                    if (clusterState.term() != lastAcceptedState.term()) {
-//                        assert clusterState.term() > lastAcceptedState.term() : clusterState.term() + " vs " + lastAcceptedState.term();
-//                        remoteClusterStateService.writeFullStateAndCommit(currentTerm, clusterState);
-//                    } else {
-//                        remoteClusterStateService.writeIncrementalStateAndCommit(currentTerm, lastAcceptedState, clusterState);
-//                    }
-//                }
+                final ClusterMetadataMarker marker;
+                if (shouldWriteFullClusterState(clusterState)) {
+                    marker = remoteClusterStateService.writeFullMetadata(currentTerm, clusterState);
+                } else {
+                    marker = remoteClusterStateService.writeIncrementalMetadata(currentTerm, lastAcceptedState, clusterState, lastAcceptedMarker);
+                }
+                lastAcceptedState = clusterState;
+                lastAcceptedMarker = marker;
             } catch (Exception e) {
                 handleExceptionOnWrite(e);
             }
+        }
+
+        private boolean shouldWriteFullClusterState(ClusterState clusterState) {
+            if (lastAcceptedState == null || lastAcceptedMarker == null || lastAcceptedState.term() != clusterState.term()) {
+                return true;
+            }
+            return false;
         }
 
         @Override
@@ -683,7 +690,6 @@ public class GatewayMetaState implements Closeable {
         }
 
         private void handleExceptionOnWrite(Exception e) {
-            writeNextStateFully = true;
             throw ExceptionsHelper.convertToRuntime(e);
         }
     }
