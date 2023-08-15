@@ -1,23 +1,20 @@
 package org.opensearch.cluster.store;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import org.opensearch.core.ParseField;
+import org.opensearch.core.common.Strings;
 import org.opensearch.core.common.io.stream.StreamOutput;
 import org.opensearch.core.common.io.stream.Writeable;
 import org.opensearch.core.xcontent.ConstructingObjectParser;
+import org.opensearch.core.xcontent.MediaTypeRegistry;
 import org.opensearch.core.xcontent.ToXContentFragment;
 import org.opensearch.core.xcontent.XContentBuilder;
 import org.opensearch.core.xcontent.XContentParser;
+import org.opensearch.core.xcontent.XContentParser.Token;
 
 /**
  * Marker file which contains the details of the uploaded entity metadata
@@ -32,8 +29,8 @@ public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
     private static final ParseField CLUSTER_UUID_FIELD = new ParseField("cluster_uuid");
     private static final ParseField STATE_UUID_FIELD = new ParseField("state_uuid");
 
-    private static List<UploadedIndexMetadata> indices(Object[] fields) {
-        return new ArrayList<>((List<UploadedIndexMetadata>) fields[0]);
+    private static Map<String, UploadedIndexMetadata> indices(Object[] fields) {
+        return (Map<String, UploadedIndexMetadata>) fields[0];
     }
 
     private static long term(Object[] fields) {
@@ -52,13 +49,18 @@ public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
         return (String) fields[4];
     }
 
-    private static final ConstructingObjectParser<ClusterMetadataMarker, Void> PARSER = new ConstructingObjectParser<>(
-        "cluster_metadata_marker",
-        fields -> new ClusterMetadataMarker(indices(fields), term(fields), version(fields), clusterUUID(fields), stateUUID(fields))
-    );
+    private static final ConstructingObjectParser<ClusterMetadataMarker, Void> PARSER = new ConstructingObjectParser<>("cluster_metadata_marker",
+        fields -> new ClusterMetadataMarker(indices(fields), term(fields), version(fields), clusterUUID(fields), stateUUID(fields)));
 
     static {
-        PARSER.declareObjectArray(ConstructingObjectParser.constructorArg(), (p, c) -> UploadedIndexMetadata.fromXContent(p), INDICES_FIELD);
+        PARSER.declareObject(ConstructingObjectParser.constructorArg(), (p, c) -> {
+            Map<String, UploadedIndexMetadata> uploadMetadataMap = new HashMap<>();
+            while (p.nextToken() != Token.END_OBJECT) {
+                UploadedIndexMetadata uploadMetadata = UploadedIndexMetadata.fromXContent(p);
+                uploadMetadataMap.put(uploadMetadata.getIndexName(), uploadMetadata);
+            }
+            return uploadMetadataMap;
+        }, INDICES_FIELD);
         PARSER.declareLong(ConstructingObjectParser.constructorArg(), TERM_FIELD);
         PARSER.declareLong(ConstructingObjectParser.constructorArg(), VERSION_FIELD);
         PARSER.declareString(ConstructingObjectParser.constructorArg(), CLUSTER_UUID_FIELD);
@@ -99,33 +101,23 @@ public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
         this.stateUUID = stateUUID;
     }
 
-    public ClusterMetadataMarker(List<UploadedIndexMetadata> indices, long term, long version, String clusterUUID, String stateUUID) {
-        this.indices = Collections.unmodifiableMap(toMap(indices));
-        this.term = term;
-        this.version = version;
-        this.clusterUUID = clusterUUID;
-        this.stateUUID = stateUUID;
-    }
-
     @Override
     public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
-        builder.startArray(INDICES_FIELD.getPreferredName());
+        builder.startObject(INDICES_FIELD.getPreferredName());
         {
             for (UploadedIndexMetadata uploadedIndexMetadata : indices.values()) {
                 uploadedIndexMetadata.toXContent(builder, params);
             }
         }
-        builder.endArray();
-        builder.field(TERM_FIELD.getPreferredName(), getTerm())
-            .field(VERSION_FIELD.getPreferredName(), getVersion())
-            .field(CLUSTER_UUID_FIELD.getPreferredName(), getClusterUUID())
-            .field(STATE_UUID_FIELD.getPreferredName(), getStateUUID());
+        builder.endObject();
+        builder.field(TERM_FIELD.getPreferredName(), getTerm()).field(VERSION_FIELD.getPreferredName(), getVersion())
+            .field(CLUSTER_UUID_FIELD.getPreferredName(), getClusterUUID()).field(STATE_UUID_FIELD.getPreferredName(), getStateUUID());
         return builder;
     }
 
     @Override
     public void writeTo(StreamOutput out) throws IOException {
-        out.writeCollection(indices.values());
+        out.writeMap(indices, StreamOutput::writeString, (stream, uploadedMetadata) -> uploadedMetadata.writeTo(stream));
         out.writeVLong(term);
         out.writeVLong(version);
         out.writeString(clusterUUID);
@@ -150,16 +142,13 @@ public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
         return Objects.hash(indices, term, version, clusterUUID, stateUUID);
     }
 
-    public static ClusterMetadataMarker fromXContent(XContentParser parser) throws IOException {
-        return PARSER.parse(parser, null);
+    @Override
+    public String toString() {
+        return Strings.toString(MediaTypeRegistry.JSON, this);
     }
 
-    private static Map<String, UploadedIndexMetadata> toMap(final Collection<UploadedIndexMetadata> uploadedIndexMetadataList) {
-        // use a linked hash map to preserve order
-        return uploadedIndexMetadataList.stream().collect(Collectors.toMap(UploadedIndexMetadata::getIndexName, Function.identity(), (left, right) -> {
-            assert left.getIndexName().equals(right.getIndexName()) : "expected [" + left.getIndexName() + "] to equal [" + right.getIndexName() + "]";
-            throw new IllegalStateException("duplicate index name [" + left.getIndexName() + "]");
-        }, LinkedHashMap::new));
+    public static ClusterMetadataMarker fromXContent(XContentParser parser) throws IOException {
+        return PARSER.parse(parser, null);
     }
 
     /**
@@ -262,15 +251,15 @@ public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
 
         @Override
         public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
-            return builder.startObject()
-                .field(INDEX_NAME_FIELD.getPreferredName(), getIndexName())
-                .field(INDEX_UUID_FIELD.getPreferredName(), getIndexUUID())
-                .field(UPLOADED_FILENAME_FIELD.getPreferredName(), getUploadedFilename())
+            return builder.startObject(getIndexName()).field(INDEX_NAME_FIELD.getPreferredName(), getIndexName())
+                .field(INDEX_UUID_FIELD.getPreferredName(), getIndexUUID()).field(UPLOADED_FILENAME_FIELD.getPreferredName(), getUploadedFilename())
                 .endObject();
         }
 
         @Override
         public void writeTo(StreamOutput out) throws IOException {
+            out.writeString(indexName);
+            out.writeString(indexUUID);
             out.writeString(uploadedFilename);
         }
 
@@ -290,6 +279,11 @@ public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
         @Override
         public int hashCode() {
             return Objects.hash(indexName, indexUUID, uploadedFilename);
+        }
+
+        @Override
+        public String toString() {
+            return Strings.toString(MediaTypeRegistry.JSON, this);
         }
 
         public static UploadedIndexMetadata fromXContent(XContentParser parser) throws IOException {
