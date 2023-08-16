@@ -954,7 +954,6 @@ public class Node implements Closeable {
                 clusterModule.getAllocationService(),
                 metadataCreateIndexService,
                 metadataIndexUpgradeService,
-                clusterService.getClusterSettings(),
                 shardLimitValidator
             );
 
