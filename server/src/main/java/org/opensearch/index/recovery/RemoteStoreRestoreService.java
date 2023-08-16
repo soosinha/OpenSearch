@@ -25,16 +25,20 @@ import org.opensearch.cluster.routing.RoutingTable;
 import org.opensearch.cluster.routing.ShardRouting;
 import org.opensearch.cluster.routing.allocation.AllocationService;
 import org.opensearch.cluster.service.ClusterService;
+import org.opensearch.cluster.store.RemoteClusterStateService;
 import org.opensearch.common.UUIDs;
 import org.opensearch.common.collect.Tuple;
+import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.core.index.shard.ShardId;
 import org.opensearch.indices.ShardLimitValidator;
+import org.opensearch.indices.replication.common.ReplicationType;
 import org.opensearch.repositories.IndexId;
 import org.opensearch.snapshots.RestoreInfo;
 import org.opensearch.snapshots.RestoreService;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -63,18 +67,22 @@ public class RemoteStoreRestoreService {
 
     private final ShardLimitValidator shardLimitValidator;
 
+    private final RemoteClusterStateService remoteClusterStateService;
+
     public RemoteStoreRestoreService(
         ClusterService clusterService,
         AllocationService allocationService,
         MetadataCreateIndexService createIndexService,
         MetadataIndexUpgradeService metadataIndexUpgradeService,
-        ShardLimitValidator shardLimitValidator
+        ShardLimitValidator shardLimitValidator,
+        RemoteClusterStateService remoteClusterStateService
     ) {
         this.clusterService = clusterService;
         this.allocationService = allocationService;
         this.createIndexService = createIndexService;
         this.metadataIndexUpgradeService = metadataIndexUpgradeService;
         this.shardLimitValidator = shardLimitValidator;
+        this.remoteClusterStateService = remoteClusterStateService;
     }
 
     /**
@@ -102,7 +110,7 @@ public class RemoteStoreRestoreService {
                 for (Map.Entry<String, Tuple<Boolean, IndexMetadata>> indexMetadataEntry : indexMetadataMap.entrySet()) {
                     String indexName = indexMetadataEntry.getKey();
                     IndexMetadata indexMetadata = indexMetadataEntry.getValue().v2();
-                    boolean fromRemoteStore = indexMetadataEntry.getValue().v1();
+                    boolean restoreMetadataFromRemote = indexMetadataEntry.getValue().v1();
                     IndexMetadata updatedIndexMetadata = indexMetadata;
                     Map<ShardId, ShardRouting> activeInitializingShards = new HashMap<>();
                     if (restoreAllShards) {
@@ -114,7 +122,7 @@ public class RemoteStoreRestoreService {
                             .settingsVersion(1 + indexMetadata.getSettingsVersion())
                             .aliasesVersion(1 + indexMetadata.getAliasesVersion())
                             .build();
-                    } else if (fromRemoteStore == false) {
+                    } else if (restoreMetadataFromRemote == false) {
                         activeInitializingShards = currentState.routingTable()
                             .index(indexName)
                             .shards()
@@ -153,9 +161,16 @@ public class RemoteStoreRestoreService {
                     || request.clusterUUID().isEmpty()
                     || request.clusterUUID().isBlank()) == false;
                 if (metadataFromRemoteStore) {
-                    // TODO integrate with download flow
-                    // something like RemoteClusterStateService.getLatestIndexMetadata()
-                    // full integration PR used for testing - <add link>
+                    try {
+                        for (Map.Entry<String, IndexMetadata> entry : remoteClusterStateService.getLatestIndexMetadata(
+                            request.clusterUUID(),
+                            currentState.getClusterName().value()
+                        ).entrySet()) {
+                            indexMetadataMap.put(entry.getKey(), new Tuple<>(true, entry.getValue()));
+                        }
+                    } catch (IOException e) {
+                        throw new IllegalStateException("failed to download remote index metadata");
+                    }
                 } else {
                     for (String indexName : request.indices()) {
                         IndexMetadata indexMetadata = currentState.metadata().index(indexName);

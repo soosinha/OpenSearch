@@ -949,12 +949,18 @@ public class Node implements Closeable {
                 clusterInfoService::getClusterInfo
             );
 
+            final RemoteClusterStateService remoteClusterStateService = new RemoteClusterStateService(
+                repositoriesServiceReference::get,
+                settings
+            );
+
             RemoteStoreRestoreService remoteStoreRestoreService = new RemoteStoreRestoreService(
                 clusterService,
                 clusterModule.getAllocationService(),
                 metadataCreateIndexService,
                 metadataIndexUpgradeService,
-                shardLimitValidator
+                shardLimitValidator,
+                remoteClusterStateService
             );
 
             final DiskThresholdMonitor diskThresholdMonitor = new DiskThresholdMonitor(
@@ -966,8 +972,6 @@ public class Node implements Closeable {
                 rerouteService
             );
             clusterInfoService.addListener(diskThresholdMonitor::onNewInfo);
-
-            final RemoteClusterStateService remoteClusterStateService = new RemoteClusterStateService(repositoriesServiceReference::get, settings);
 
             final DiscoveryModule discoveryModule = new DiscoveryModule(
                 settings,
@@ -983,8 +987,7 @@ public class Node implements Closeable {
                 environment.configDir(),
                 gatewayMetaState,
                 rerouteService,
-                fsHealthService,
-                remoteClusterStateService
+                fsHealthService
             );
             final SearchPipelineService searchPipelineService = new SearchPipelineService(
                 clusterService,

@@ -14,7 +14,6 @@ import org.opensearch.action.admin.cluster.remotestore.restore.RestoreRemoteStor
 import org.opensearch.action.index.IndexResponse;
 import org.opensearch.action.support.PlainActionFuture;
 import org.opensearch.cluster.health.ClusterHealthStatus;
-import org.opensearch.common.UUIDs;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.plugins.Plugin;
 import org.opensearch.test.InternalTestCluster;
@@ -29,6 +28,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 
+import static org.opensearch.indices.IndicesService.CLUSTER_REMOTE_STATE_REPOSITORY_SETTING;
 import static org.opensearch.test.hamcrest.OpenSearchAssertions.assertAcked;
 import static org.opensearch.test.hamcrest.OpenSearchAssertions.assertHitCount;
 
@@ -47,8 +47,7 @@ public class RemoteStoreRestoreIT extends RemoteStoreBaseIntegTestCase {
         return Settings.builder()
             .put(super.nodeSettings(nodeOrdinal))
             .put(remoteStoreClusterSettings(REPOSITORY_NAME))
-            // TODO uncomment after rebased with upload changes
-            // .put(CLUSTER_REMOTE_STATE_REPOSITORY_SETTING.getKey(), REPOSITORY_NAME)
+            .put(CLUSTER_REMOTE_STATE_REPOSITORY_SETTING.getKey(), REPOSITORY_NAME)
             .build();
     }
 
@@ -470,7 +469,6 @@ public class RemoteStoreRestoreIT extends RemoteStoreBaseIntegTestCase {
 
     // TODO: Restore flow - index aliases
 
-    @AwaitsFix(bugUrl = "waiting upload flow rebase. tested on integration PR")
     public void testRestoreFlowFullClusterRestartZeroReplica() {
         int shardCount = 1;
         // Step - 1 index some data to generate files in remote directory
