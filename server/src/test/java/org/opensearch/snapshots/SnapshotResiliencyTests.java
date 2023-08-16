@@ -37,7 +37,7 @@ import org.apache.logging.log4j.Logger;
 import org.mockito.Mockito;
 import org.opensearch.ExceptionsHelper;
 import org.opensearch.Version;
-import org.opensearch.action.ActionListener;
+import org.opensearch.core.action.ActionListener;
 import org.opensearch.action.ActionModule.DynamicActionRegistry;
 import org.opensearch.action.ActionType;
 import org.opensearch.action.RequestValidators;
@@ -2505,7 +2505,8 @@ public class SnapshotResiliencyTests extends OpenSearchTestCase {
                     random(),
                     rerouteService,
                     ElectionStrategy.DEFAULT_INSTANCE,
-                    () -> new StatusInfo(HEALTHY, "healthy-info")
+                    () -> new StatusInfo(HEALTHY, "healthy-info"),
+                    new SetOnce<>(mock(CoordinationState.PersistedState.class))::get
                 );
                 clusterManagerService.setClusterStatePublisher(coordinator);
                 coordinator.start();

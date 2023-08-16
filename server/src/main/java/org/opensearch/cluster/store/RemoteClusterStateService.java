@@ -4,14 +4,16 @@ import static org.opensearch.indices.IndicesService.CLUSTER_REMOTE_STATE_REPOSIT
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.metadata.IndexMetadata;
-import org.opensearch.cluster.store.ClusterMetadataMarker.UploadedIndexMetadata;
 import org.opensearch.common.blobstore.BlobContainer;
+import org.opensearch.common.blobstore.BlobMetadata;
+import org.opensearch.cluster.store.ClusterMetadataMarker.UploadedIndexMetadata;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.indices.IndicesService;
 import org.opensearch.repositories.RepositoriesService;
@@ -67,14 +69,21 @@ public class RemoteClusterStateService {
         }
 
         final Map<String, ClusterMetadataMarker.UploadedIndexMetadata> allUploadedIndexMetadata = new HashMap<>();
-        //todo parallel upload
+        // todo parallel upload
         // any validations before/after upload ?
         for (IndexMetadata indexMetadata : clusterState.metadata().indices().values()) {
-            //123456789012_test-cluster/cluster-state/dsgYj10Nkso7/index/ftqsCnn9TgOX/metadata_4_1690947200
-            final String indexMetadataKey = writeIndexMetadata(clusterState.getClusterName().value(), clusterState.getMetadata().clusterUUID(),
-                indexMetadata, indexMetadataFileName(indexMetadata));
-            final UploadedIndexMetadata uploadedIndexMetadata = new UploadedIndexMetadata(indexMetadata.getIndex().getName(), indexMetadata.getIndexUUID(),
-                indexMetadataKey);
+            // 123456789012_test-cluster/cluster-state/dsgYj10Nkso7/index/ftqsCnn9TgOX/metadata_4_1690947200
+            final String indexMetadataKey = writeIndexMetadata(
+                clusterState.getClusterName().value(),
+                clusterState.getMetadata().clusterUUID(),
+                indexMetadata,
+                indexMetadataFileName(indexMetadata)
+            );
+            final UploadedIndexMetadata uploadedIndexMetadata = new UploadedIndexMetadata(
+                indexMetadata.getIndex().getName(),
+                indexMetadata.getIndexUUID(),
+                indexMetadataKey
+            );
             allUploadedIndexMetadata.put(indexMetadata.getIndex().getName(), uploadedIndexMetadata);
         }
         return uploadMarker(clusterState, allUploadedIndexMetadata);
@@ -108,12 +117,18 @@ public class RemoteClusterStateService {
 
         int numIndicesUpdated = 0;
         int numIndicesUnchanged = 0;
-        final Map<String, ClusterMetadataMarker.UploadedIndexMetadata> allUploadedIndexMetadata = new HashMap<>(previousMarker.getIndices());
+        final Map<String, ClusterMetadataMarker.UploadedIndexMetadata> allUploadedIndexMetadata = new HashMap<>(
+            previousMarker.getIndices()
+        );
         for (final IndexMetadata indexMetadata : clusterState.metadata().indices().values()) {
             final Long previousVersion = indexMetadataVersionByName.get(indexMetadata.getIndex().getName());
             if (previousVersion == null || indexMetadata.getVersion() != previousVersion) {
-                logger.trace("updating metadata for [{}], changing version from [{}] to [{}]", indexMetadata.getIndex(), previousVersion,
-                    indexMetadata.getVersion());
+                logger.trace(
+                    "updating metadata for [{}], changing version from [{}] to [{}]",
+                    indexMetadata.getIndex(),
+                    previousVersion,
+                    indexMetadata.getVersion()
+                );
                 numIndicesUpdated++;
                 final String indexMetadataKey = writeIndexMetadata(clusterState.getClusterName().value(), clusterState.getMetadata().clusterUUID(),
                     indexMetadata, indexMetadataFileName(indexMetadata));
@@ -133,7 +148,7 @@ public class RemoteClusterStateService {
     }
 
     public ClusterState getLatestClusterState(String clusterUUID) {
-        //todo
+        // todo
         return null;
     }
 
@@ -143,7 +158,8 @@ public class RemoteClusterStateService {
             final String markerFileName = getMarkerFileName(clusterState.term(), clusterState.version());
             final ClusterMetadataMarker marker = new ClusterMetadataMarker(uploadedIndexMetadata, clusterState.term(), clusterState.getVersion(),
                 clusterState.metadata().clusterUUID(),
-                clusterState.stateUUID());
+                clusterState.stateUUID()
+            );
             writeMetadataMarker(clusterState.getClusterName().value(), clusterState.metadata().clusterUUID(), marker, markerFileName);
             return marker;
         }
@@ -162,13 +178,15 @@ public class RemoteClusterStateService {
     }
 
     public BlobContainer indexMetadataContainer(String clusterName, String clusterUUID, String indexUUID) {
-        //123456789012_test-cluster/cluster-state/dsgYj10Nkso7/index/ftqsCnn9TgOX
+        // 123456789012_test-cluster/cluster-state/dsgYj10Nkso7/index/ftqsCnn9TgOX
         return blobStoreRepository.blobStore()
-            .blobContainer(blobStoreRepository.basePath().add(clusterName).add("cluster-state").add(clusterUUID).add("index").add(indexUUID));
+            .blobContainer(
+                blobStoreRepository.basePath().add(clusterName).add("cluster-state").add(clusterUUID).add("index").add(indexUUID)
+            );
     }
 
     public BlobContainer markerContainer(String clusterName, String clusterUUID) {
-        //123456789012_test-cluster/cluster-state/dsgYj10Nkso7/marker
+        // 123456789012_test-cluster/cluster-state/dsgYj10Nkso7/marker
         return blobStoreRepository.blobStore()
             .blobContainer(blobStoreRepository.basePath().add(clusterName).add("cluster-state").add(clusterUUID).add("marker"));
     }
@@ -184,5 +202,56 @@ public class RemoteClusterStateService {
         return String.join(DELIMITER, "metadata", String.valueOf(indexMetadata.getVersion()), String.valueOf(System.currentTimeMillis()));
     }
 
+    private BlobContainer getMarkerBlobContainer(String clusterUUID, String clusterName) {
+        return blobStoreRepository.blobStore()
+            .blobContainer(blobStoreRepository.basePath().add(clusterName).add("cluster-state").add(clusterUUID).add("marker"));
+    }
 
+    public ClusterMetadataMarker getLatestClusterMetadataMarker(String clusterUUID, String clusterState) {
+        String latestMarkerFileName = getLatestMarkerFileName(clusterUUID, clusterState);
+        return fetchRemoteClusterMetadataMarker(latestMarkerFileName, clusterUUID, clusterState);
+    }
+
+    public ClusterMetadataMarker fetchRemoteClusterMetadataMarker(String filename, String clusterUUID, String clusterState) {
+        try {
+            return RemoteClusterStateService.CLUSTER_METADATA_MARKER_FORMAT.read(
+                getMarkerBlobContainer(clusterUUID, clusterState),
+                filename,
+                blobStoreRepository.getNamedXContentRegistry()
+            );
+        } catch (IOException e) {
+            logger.error("Error while downloading ClusterMetadataMarker", e);
+        }
+        return null;
+    }
+
+    public String getLatestMarkerFileName(String clusterUUID, String clusterState) {
+        try {
+            List<BlobMetadata> markerFilesMetadata = getMarkerBlobContainer(clusterUUID, clusterState).listBlobsByPrefixInSortedOrder(
+                "marker",
+                1,
+                BlobContainer.BlobNameSortOrder.LEXICOGRAPHIC
+            );
+            if (markerFilesMetadata != null && !markerFilesMetadata.isEmpty()) {
+                return markerFilesMetadata.get(0).name();
+            }
+        } catch (IOException e) {
+            logger.error("error while fetching marker file for remote cluster state", e);
+        }
+        return null;
+    }
+
+    public Map<String, IndexMetadata> getLatestIndexMetadata(String clusterUUID, String clusterName) throws IOException {
+        Map<String, IndexMetadata> remoteIndexMetadata = new HashMap<>();
+        ClusterMetadataMarker clusterMetadataMarker = getLatestClusterMetadataMarker(clusterUUID, clusterName);
+        for (Map.Entry<String, UploadedIndexMetadata> entry : clusterMetadataMarker.getIndices().entrySet()) {
+            IndexMetadata indexMetadata = INDEX_METADATA_FORMAT.read(
+                blobStoreRepository.blobStore().blobContainer(blobStoreRepository.basePath()),
+                entry.getValue().getUploadedFilename(),
+                blobStoreRepository.getNamedXContentRegistry()
+            );
+            remoteIndexMetadata.put(entry.getKey(), indexMetadata);
+        }
+        return remoteIndexMetadata;
+    }
 }
