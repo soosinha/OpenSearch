@@ -35,7 +35,44 @@ package org.opensearch.node;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.lucene.util.Constants;
-import org.opensearch.cluster.store.RemoteClusterStateService;
+import org.opensearch.ExceptionsHelper;
+import org.opensearch.common.SetOnce;
+import org.opensearch.common.settings.SettingsException;
+import org.opensearch.core.common.unit.ByteSizeUnit;
+import org.opensearch.core.common.unit.ByteSizeValue;
+import org.opensearch.common.util.FeatureFlags;
+import org.opensearch.cluster.routing.allocation.AwarenessReplicaBalance;
+import org.opensearch.index.IndexModule;
+import org.opensearch.index.IndexingPressureService;
+import org.opensearch.index.recovery.RemoteStoreRestoreService;
+import org.opensearch.index.store.remote.filecache.FileCache;
+import org.opensearch.index.store.remote.filecache.FileCacheCleaner;
+import org.opensearch.index.store.remote.filecache.FileCacheFactory;
+import org.opensearch.indices.replication.SegmentReplicationSourceFactory;
+import org.opensearch.indices.replication.SegmentReplicationTargetService;
+import org.opensearch.indices.replication.SegmentReplicationSourceService;
+import org.opensearch.extensions.ExtensionsManager;
+import org.opensearch.extensions.NoopExtensionsManager;
+import org.opensearch.monitor.fs.FsInfo;
+import org.opensearch.monitor.fs.FsProbe;
+import org.opensearch.plugins.ExtensionAwarePlugin;
+import org.opensearch.plugins.SearchPipelinePlugin;
+import org.opensearch.telemetry.tracing.NoopTracerFactory;
+import org.opensearch.telemetry.tracing.Tracer;
+import org.opensearch.telemetry.tracing.TracerFactory;
+import org.opensearch.search.backpressure.SearchBackpressureService;
+import org.opensearch.search.backpressure.settings.SearchBackpressureSettings;
+import org.opensearch.search.pipeline.SearchPipelineService;
+import org.opensearch.tasks.TaskCancellationMonitoringService;
+import org.opensearch.tasks.TaskCancellationMonitoringSettings;
+import org.opensearch.tasks.TaskResourceTrackingService;
+import org.opensearch.tasks.consumer.TopNSearchTasksLogger;
+import org.opensearch.threadpool.RunnableTaskExecutionListener;
+import org.opensearch.index.store.RemoteSegmentStoreDirectoryFactory;
+import org.opensearch.telemetry.TelemetryModule;
+import org.opensearch.telemetry.TelemetrySettings;
+import org.opensearch.watcher.ResourceWatcherService;
+import org.opensearch.core.Assertions;
 import org.opensearch.Build;
 import org.opensearch.ExceptionsHelper;
 import org.opensearch.OpenSearchException;
@@ -964,8 +1001,6 @@ public class Node implements Closeable {
             );
             clusterInfoService.addListener(diskThresholdMonitor::onNewInfo);
 
-            final RemoteClusterStateService remoteClusterStateService = new RemoteClusterStateService(repositoriesServiceReference::get, settings);
-
             final DiscoveryModule discoveryModule = new DiscoveryModule(
                 settings,
                 threadPool,
@@ -980,8 +1015,7 @@ public class Node implements Closeable {
                 environment.configDir(),
                 gatewayMetaState,
                 rerouteService,
-                fsHealthService,
-                remoteClusterStateService
+                fsHealthService
             );
             final SearchPipelineService searchPipelineService = new SearchPipelineService(
                 clusterService,
@@ -1104,7 +1138,6 @@ public class Node implements Closeable {
                 b.bind(MetadataUpgrader.class).toInstance(metadataUpgrader);
                 b.bind(MetaStateService.class).toInstance(metaStateService);
                 b.bind(PersistedClusterStateService.class).toInstance(lucenePersistedStateFactory);
-                b.bind(RemoteClusterStateService.class).toInstance(remoteClusterStateService);
                 b.bind(IndicesService.class).toInstance(indicesService);
                 b.bind(AliasValidator.class).toInstance(aliasValidator);
                 b.bind(MetadataCreateIndexService.class).toInstance(metadataCreateIndexService);
@@ -1307,8 +1340,7 @@ public class Node implements Closeable {
             injector.getInstance(MetaStateService.class),
             injector.getInstance(MetadataIndexUpgradeService.class),
             injector.getInstance(MetadataUpgrader.class),
-            injector.getInstance(PersistedClusterStateService.class),
-            injector.getInstance(RemoteClusterStateService.class)
+            injector.getInstance(PersistedClusterStateService.class)
         );
         if (Assertions.ENABLED) {
             try {
