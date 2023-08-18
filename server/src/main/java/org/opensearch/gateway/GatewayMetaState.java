@@ -52,6 +52,8 @@ import org.opensearch.cluster.metadata.Metadata;
 import org.opensearch.cluster.metadata.MetadataIndexUpgradeService;
 import org.opensearch.cluster.node.DiscoveryNode;
 import org.opensearch.cluster.service.ClusterService;
+import org.opensearch.cluster.store.ClusterMetadataMarker;
+import org.opensearch.cluster.store.RemoteClusterStateService;
 import org.opensearch.common.SetOnce;
 import org.opensearch.common.collect.Tuple;
 import org.opensearch.common.settings.Settings;
@@ -597,6 +599,81 @@ public class GatewayMetaState implements Closeable {
         @Override
         public void close() throws IOException {
             IOUtils.close(persistenceWriter.getAndSet(null));
+        }
+    }
+
+    /**
+     * Encapsulates the writing of metadata to a remote store using {@link RemoteClusterStateService}.
+     */
+    public static class RemotePersistedState implements PersistedState {
+
+        private ClusterState lastAcceptedState;
+        private ClusterMetadataMarker lastAcceptedMarker;
+        private final RemoteClusterStateService remoteClusterStateService;
+
+        public RemotePersistedState(final RemoteClusterStateService remoteClusterStateService) {
+            this.remoteClusterStateService = remoteClusterStateService;
+        }
+
+        @Override
+        public long getCurrentTerm() {
+            return lastAcceptedState != null ? lastAcceptedState.term() : 0L;
+        }
+
+        @Override
+        public ClusterState getLastAcceptedState() {
+            return lastAcceptedState;
+        }
+
+        @Override
+        public void setCurrentTerm(long currentTerm) {
+            // no-op
+            // For LucenePersistedState, setCurrentTerm is used only while handling StartJoinRequest by all follower nodes.
+            // But for RemotePersistedState, the state is only pushed by the active cluster. So this method is not required.
+        }
+
+        @Override
+        public void setLastAcceptedState(ClusterState clusterState) {
+            try {
+                if (lastAcceptedState == null || lastAcceptedState.blocks().hasGlobalBlock(GatewayService.STATE_NOT_RECOVERED_BLOCK)) {
+                    // On the initial bootstrap, repository will not be available. So we do not persist the cluster state and bail out.
+                    lastAcceptedState = clusterState;
+                    return;
+                } else {
+
+                }
+                final ClusterMetadataMarker marker;
+                if (shouldWriteFullClusterState(clusterState)) {
+                    marker = remoteClusterStateService.writeFullMetadata(clusterState);
+                } else {
+                    marker = remoteClusterStateService.writeIncrementalMetadata(lastAcceptedState, clusterState, lastAcceptedMarker);
+                }
+                lastAcceptedState = clusterState;
+                lastAcceptedMarker = marker;
+            } catch (Exception e) {
+                handleExceptionOnWrite(e);
+            }
+        }
+
+        private boolean shouldWriteFullClusterState(ClusterState clusterState) {
+            if (lastAcceptedState == null || lastAcceptedMarker == null || lastAcceptedState.term() != clusterState.term()) {
+                return true;
+            }
+            return false;
+        }
+
+        @Override
+        public void markLastAcceptedStateAsCommitted() {
+            // TODO
+        }
+
+        @Override
+        public void close() throws IOException {
+            PersistedState.super.close();
+        }
+
+        private void handleExceptionOnWrite(Exception e) {
+            throw ExceptionsHelper.convertToRuntime(e);
         }
     }
 }

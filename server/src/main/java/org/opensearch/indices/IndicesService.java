@@ -273,6 +273,16 @@ public class IndicesService extends AbstractLifecycleComponent
     );
 
     /**
+     * Used to specify default repo to use for translog upload for remote store backed indices
+     */
+    public static final Setting<String> CLUSTER_REMOTE_STATE_REPOSITORY_SETTING = Setting.simpleString(
+        "cluster.remote_store.state.repository",
+        "",
+        Property.NodeScope,
+        Property.Final
+    );
+
+    /**
      * This setting is used to set the refresh interval when the {@code index.refresh_interval} index setting is not
      * provided during index creation or when the existing {@code index.refresh_interval} index setting is set as null.
      * This comes handy when the user wants to set a default refresh interval across all indexes created in a cluster
