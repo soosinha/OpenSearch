@@ -16,6 +16,7 @@ import org.opensearch.cluster.store.ClusterMetadataMarker.UploadedIndexMetadata;
 import org.opensearch.common.Nullable;
 import org.opensearch.common.blobstore.BlobContainer;
 import org.opensearch.common.settings.Settings;
+import org.opensearch.index.remote.RemoteStoreUtils;
 import org.opensearch.indices.IndicesService;
 import org.opensearch.repositories.RepositoriesService;
 import org.opensearch.repositories.Repository;
@@ -66,17 +67,23 @@ public class RemoteClusterStateService {
         this.settings = settings;
     }
 
+    /**
+     * This method uploads entire cluster state metadata to the configured blob store.
+     * For now only index metadata upload is supported.
+     * This method should be invoked by the elected cluster manager when the remote cluster
+     * state is enabled.
+     * @param clusterState
+     * @return A metadata/marker object which contains the details of uploaded entity metadata.
+     * @throws IOException
+     */
     @Nullable
     public ClusterMetadataMarker writeFullMetadata(ClusterState clusterState) throws IOException {
         if (clusterState.nodes().isLocalNodeElectedClusterManager() == false) {
             logger.error("Local node is not elected cluster manager. Exiting");
             return null;
         }
+        assert IndicesService.CLUSTER_REMOTE_STORE_ENABLED_SETTING.get(settings) == true : "Remote cluster state is not enabled";
         initializeRepository();
-        if (blobStoreRepository == null) {
-            logger.error("Unable to set repository");
-            return null;
-        }
 
         final Map<String, ClusterMetadataMarker.UploadedIndexMetadata> allUploadedIndexMetadata = new HashMap<>();
         // todo parallel upload
@@ -99,6 +106,16 @@ public class RemoteClusterStateService {
         return uploadMarker(clusterState, allUploadedIndexMetadata);
     }
 
+    /**
+     * This method uploads the diff between the previous cluster state and the current cluster state.
+     * The previous marker file is needed to create the new marker. The new marker file is created by using
+     * the unchanged metadata from the previous marker and the new metadata changes from the current cluster state.
+     * @param previousClusterState
+     * @param clusterState
+     * @param previousMarker
+     * @return The uploaded ClusterMetadataMarker file
+     * @throws IOException
+     */
     @Nullable
     public ClusterMetadataMarker writeIncrementalMetadata(
         ClusterState previousClusterState,
@@ -110,9 +127,10 @@ public class RemoteClusterStateService {
             return null;
         }
         assert previousClusterState.metadata().coordinationMetadata().term() == clusterState.metadata().coordinationMetadata().term();
-        final Map<String, Long> indexMetadataVersionByName = new HashMap<>();
+        assert IndicesService.CLUSTER_REMOTE_STORE_ENABLED_SETTING.get(settings) == true : "Remote cluster state is not enabled";
+        final Map<String, Long> previousStateIndexMetadataVersionByName = new HashMap<>();
         for (final IndexMetadata indexMetadata : previousClusterState.metadata().indices().values()) {
-            indexMetadataVersionByName.putIfAbsent(indexMetadata.getIndex().getName(), indexMetadata.getVersion());
+            previousStateIndexMetadataVersionByName.put(indexMetadata.getIndex().getName(), indexMetadata.getVersion());
         }
 
         int numIndicesUpdated = 0;
@@ -121,7 +139,7 @@ public class RemoteClusterStateService {
             previousMarker.getIndices()
         );
         for (final IndexMetadata indexMetadata : clusterState.metadata().indices().values()) {
-            final Long previousVersion = indexMetadataVersionByName.get(indexMetadata.getIndex().getName());
+            final Long previousVersion = previousStateIndexMetadataVersionByName.get(indexMetadata.getIndex().getName());
             if (previousVersion == null || indexMetadata.getVersion() != previousVersion) {
                 logger.trace(
                     "updating metadata for [{}], changing version from [{}] to [{}]",
@@ -145,10 +163,10 @@ public class RemoteClusterStateService {
             } else {
                 numIndicesUnchanged++;
             }
-            indexMetadataVersionByName.remove(indexMetadata.getIndex().getName());
+            previousStateIndexMetadataVersionByName.remove(indexMetadata.getIndex().getName());
         }
 
-        for (String removedIndexName : indexMetadataVersionByName.keySet()) {
+        for (String removedIndexName : previousStateIndexMetadataVersionByName.keySet()) {
             allUploadedIndexMetadata.remove(removedIndexName);
         }
         return uploadMarker(clusterState, allUploadedIndexMetadata);
@@ -164,12 +182,11 @@ public class RemoteClusterStateService {
         if (blobStoreRepository != null) {
             return;
         }
-        if (IndicesService.CLUSTER_REMOTE_STORE_ENABLED_SETTING.get(settings)) {
-            final String remoteStoreRepo = CLUSTER_REMOTE_STATE_REPOSITORY_SETTING.get(settings);
-            final Repository repository = repositoriesService.get().repository(remoteStoreRepo);
-            assert repository instanceof BlobStoreRepository : "repository should be instance of BlobStoreRepository";
-            blobStoreRepository = (BlobStoreRepository) repository;
-        }
+        final String remoteStoreRepo = CLUSTER_REMOTE_STATE_REPOSITORY_SETTING.get(settings);
+        assert remoteStoreRepo != null : "Remote Cluster State repository is not configured";
+        final Repository repository = repositoriesService.get().repository(remoteStoreRepo);
+        assert repository instanceof BlobStoreRepository : "Repository should be instance of BlobStoreRepository";
+        blobStoreRepository = (BlobStoreRepository) repository;
     }
 
     private ClusterMetadataMarker uploadMarker(
@@ -190,18 +207,18 @@ public class RemoteClusterStateService {
         }
     }
 
-    private String writeIndexMetadata(String clusterName, String clusterUUID, IndexMetadata indexMetadata, String fileName)
+    private String writeIndexMetadata(String clusterName, String clusterUUID, IndexMetadata uploadIndexMetadata, String fileName)
         throws IOException {
-        final BlobContainer indexMetadataContainer = indexMetadataContainer(clusterName, clusterUUID, indexMetadata.getIndexUUID());
-        INDEX_METADATA_FORMAT.write(indexMetadata, indexMetadataContainer, fileName, blobStoreRepository.getCompressor());
+        final BlobContainer indexMetadataContainer = indexMetadataContainer(clusterName, clusterUUID, uploadIndexMetadata.getIndexUUID());
+        INDEX_METADATA_FORMAT.write(uploadIndexMetadata, indexMetadataContainer, fileName, blobStoreRepository.getCompressor());
         // returning full path
         return indexMetadataContainer.path().buildAsString() + fileName;
     }
 
-    private void writeMetadataMarker(String clusterName, String clusterUUID, ClusterMetadataMarker marker, String fileName)
+    private void writeMetadataMarker(String clusterName, String clusterUUID, ClusterMetadataMarker uploadMarker, String fileName)
         throws IOException {
         final BlobContainer metadataMarkerContainer = markerContainer(clusterName, clusterUUID);
-        CLUSTER_METADATA_MARKER_FORMAT.write(marker, metadataMarkerContainer, fileName, blobStoreRepository.getCompressor());
+        CLUSTER_METADATA_MARKER_FORMAT.write(uploadMarker, metadataMarkerContainer, fileName, blobStoreRepository.getCompressor());
     }
 
     private BlobContainer indexMetadataContainer(String clusterName, String clusterUUID, String indexUUID) {
@@ -234,9 +251,9 @@ public class RemoteClusterStateService {
         return String.join(
             DELIMITER,
             "marker",
-            String.valueOf(Long.MAX_VALUE - term),
-            String.valueOf(Long.MAX_VALUE - version),
-            String.valueOf(Long.MAX_VALUE - System.currentTimeMillis())
+            RemoteStoreUtils.invertLong(term),
+            RemoteStoreUtils.invertLong(version),
+            RemoteStoreUtils.invertLong(System.currentTimeMillis())
         );
     }
 

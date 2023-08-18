@@ -84,9 +84,7 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
         final Settings settings = Settings.builder().build();
         remoteClusterStateService = spy(new RemoteClusterStateService(repositoriesServiceSupplier, settings));
         final ClusterState clusterState = ClusterState.builder(generateClusterState()).nodes(nodes).build();
-        final ClusterMetadataMarker marker = remoteClusterStateService.writeFullMetadata(clusterState);
-        verify(remoteClusterStateService, times(1)).initializeRepository();
-        Assert.assertThat(marker, nullValue());
+        assertThrows(AssertionError.class, () -> remoteClusterStateService.writeFullMetadata(clusterState));
     }
 
     public void testFailWriteFullMetadataWhenRepositoryNotSet() {
