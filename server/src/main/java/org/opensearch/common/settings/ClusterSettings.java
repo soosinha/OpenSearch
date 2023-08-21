@@ -78,6 +78,7 @@ import org.opensearch.cluster.service.ClusterApplierService;
 import org.opensearch.cluster.service.ClusterManagerService;
 import org.opensearch.cluster.service.ClusterManagerTaskThrottler;
 import org.opensearch.cluster.service.ClusterService;
+import org.opensearch.cluster.store.RemoteClusterStateService;
 import org.opensearch.common.logging.Loggers;
 import org.opensearch.common.network.NetworkModule;
 import org.opensearch.common.network.NetworkService;
@@ -678,7 +679,7 @@ public final class ClusterSettings extends AbstractScopedSettings {
             IndicesService.CLUSTER_REMOTE_STORE_ENABLED_SETTING,
             IndicesService.CLUSTER_REMOTE_SEGMENT_STORE_REPOSITORY_SETTING,
             IndicesService.CLUSTER_REMOTE_TRANSLOG_REPOSITORY_SETTING,
-            IndicesService.CLUSTER_REMOTE_STATE_REPOSITORY_SETTING
+            RemoteClusterStateService.CLUSTER_REMOTE_CLUSTER_STATE_REPOSITORY_SETTING
         ),
         List.of(FeatureFlags.CONCURRENT_SEGMENT_SEARCH),
         List.of(

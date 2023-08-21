@@ -45,7 +45,6 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -62,8 +61,8 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
         repositoriesService = mock(RepositoriesService.class);
         when(repositoriesServiceSupplier.get()).thenReturn(repositoriesService);
         final Settings settings = Settings.builder()
-            .put(IndicesService.CLUSTER_REMOTE_STORE_ENABLED_SETTING.getKey(), true)
-            .put(IndicesService.CLUSTER_REMOTE_STATE_REPOSITORY_SETTING.getKey(), "remote_store_repository")
+            .put(RemoteClusterStateService.CLUSTER_REMOTE_CLUSTER_STATE_ENABLED_SETTING.getKey(), true)
+            .put(RemoteClusterStateService.CLUSTER_REMOTE_CLUSTER_STATE_REPOSITORY_SETTING.getKey(), "remote_store_repository")
             .build();
         blobStoreRepository = mock(BlobStoreRepository.class);
         when(repositoriesService.repository("remote_store_repository")).thenReturn(blobStoreRepository);
