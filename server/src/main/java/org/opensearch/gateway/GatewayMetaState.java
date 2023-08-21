@@ -664,7 +664,15 @@ public class GatewayMetaState implements Closeable {
 
         @Override
         public void markLastAcceptedStateAsCommitted() {
-            // TODO
+            try {
+                final ClusterMetadataMarker committedMarker = remoteClusterStateService.markLastStateAsCommitted(
+                    lastAcceptedState,
+                    lastAcceptedMarker
+                );
+                lastAcceptedMarker = committedMarker;
+            } catch (Exception e) {
+                handleExceptionOnWrite(e);
+            }
         }
 
         @Override

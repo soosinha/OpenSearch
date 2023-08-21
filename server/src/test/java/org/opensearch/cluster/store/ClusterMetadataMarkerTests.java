@@ -28,7 +28,8 @@ public class ClusterMetadataMarkerTests extends OpenSearchTestCase {
             1L,
             1L,
             "test-cluster-uuid",
-            "test-state-uuid"
+            "test-state-uuid",
+            false
         );
         final XContentBuilder builder = JsonXContent.contentBuilder();
         builder.startObject();

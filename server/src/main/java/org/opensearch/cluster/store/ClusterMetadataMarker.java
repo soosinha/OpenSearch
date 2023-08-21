@@ -37,6 +37,7 @@ public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
     private static final ParseField VERSION_FIELD = new ParseField("version");
     private static final ParseField CLUSTER_UUID_FIELD = new ParseField("cluster_uuid");
     private static final ParseField STATE_UUID_FIELD = new ParseField("state_uuid");
+    private static final ParseField COMMITTED_FIELD = new ParseField("committed");
 
     private static Map<String, UploadedIndexMetadata> indices(Object[] fields) {
         return (Map<String, UploadedIndexMetadata>) fields[0];
@@ -58,9 +59,20 @@ public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
         return (String) fields[4];
     }
 
+    private static boolean committed(Object[] fields) {
+        return (boolean) fields[5];
+    }
+
     private static final ConstructingObjectParser<ClusterMetadataMarker, Void> PARSER = new ConstructingObjectParser<>(
         "cluster_metadata_marker",
-        fields -> new ClusterMetadataMarker(indices(fields), term(fields), version(fields), clusterUUID(fields), stateUUID(fields))
+        fields -> new ClusterMetadataMarker(
+            indices(fields),
+            term(fields),
+            version(fields),
+            clusterUUID(fields),
+            stateUUID(fields),
+            committed(fields)
+        )
     );
 
     static {
@@ -76,6 +88,7 @@ public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
         PARSER.declareLong(ConstructingObjectParser.constructorArg(), VERSION_FIELD);
         PARSER.declareString(ConstructingObjectParser.constructorArg(), CLUSTER_UUID_FIELD);
         PARSER.declareString(ConstructingObjectParser.constructorArg(), STATE_UUID_FIELD);
+        PARSER.declareBoolean(ConstructingObjectParser.constructorArg(), COMMITTED_FIELD);
     }
 
     private final Map<String, UploadedIndexMetadata> indices;
@@ -83,6 +96,7 @@ public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
     private final long version;
     private final String clusterUUID;
     private final String stateUUID;
+    private final boolean committed;
 
     public Map<String, UploadedIndexMetadata> getIndices() {
         return indices;
@@ -104,18 +118,24 @@ public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
         return stateUUID;
     }
 
+    public boolean isCommitted() {
+        return committed;
+    }
+
     public ClusterMetadataMarker(
         Map<String, UploadedIndexMetadata> indices,
         long term,
         long version,
         String clusterUUID,
-        String stateUUID
+        String stateUUID,
+        boolean committed
     ) {
         this.indices = Collections.unmodifiableMap(indices);
         this.term = term;
         this.version = version;
         this.clusterUUID = clusterUUID;
         this.stateUUID = stateUUID;
+        this.committed = committed;
     }
 
     public static Builder builder() {
@@ -134,7 +154,8 @@ public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
         builder.field(TERM_FIELD.getPreferredName(), getTerm())
             .field(VERSION_FIELD.getPreferredName(), getVersion())
             .field(CLUSTER_UUID_FIELD.getPreferredName(), getClusterUUID())
-            .field(STATE_UUID_FIELD.getPreferredName(), getStateUUID());
+            .field(STATE_UUID_FIELD.getPreferredName(), getStateUUID())
+            .field(COMMITTED_FIELD.getPreferredName(), isCommitted());
         return builder;
     }
 
@@ -145,6 +166,7 @@ public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
         out.writeVLong(version);
         out.writeString(clusterUUID);
         out.writeString(stateUUID);
+        out.writeBoolean(committed);
     }
 
     @Override
@@ -160,12 +182,13 @@ public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
             && term == that.term
             && version == that.version
             && Objects.equals(clusterUUID, that.clusterUUID)
-            && Objects.equals(stateUUID, that.stateUUID);
+            && Objects.equals(stateUUID, that.stateUUID)
+            && Objects.equals(committed, that.committed);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(indices, term, version, clusterUUID, stateUUID);
+        return Objects.hash(indices, term, version, clusterUUID, stateUUID, committed);
     }
 
     @Override
@@ -189,6 +212,7 @@ public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
         private long version;
         private String clusterUUID;
         private String stateUUID;
+        private boolean committed;
 
         public Builder indices(Map<String, UploadedIndexMetadata> indices) {
             this.indices = indices;
@@ -215,6 +239,11 @@ public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
             return this;
         }
 
+        public Builder committed(boolean committed) {
+            this.committed = committed;
+            return this;
+        }
+
         public Map<String, UploadedIndexMetadata> getIndices() {
             return indices;
         }
@@ -224,7 +253,7 @@ public class ClusterMetadataMarker implements Writeable, ToXContentFragment {
         }
 
         public ClusterMetadataMarker build() {
-            return new ClusterMetadataMarker(indices, term, version, clusterUUID, stateUUID);
+            return new ClusterMetadataMarker(indices, term, version, clusterUUID, stateUUID, committed);
         }
 
     }

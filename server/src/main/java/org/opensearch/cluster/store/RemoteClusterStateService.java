@@ -19,7 +19,6 @@ import org.opensearch.common.settings.Setting;
 import org.opensearch.common.settings.Setting.Property;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.index.remote.RemoteStoreUtils;
-import org.opensearch.indices.IndicesService;
 import org.opensearch.repositories.RepositoriesService;
 import org.opensearch.repositories.Repository;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
@@ -121,7 +120,7 @@ public class RemoteClusterStateService {
             );
             allUploadedIndexMetadata.put(indexMetadata.getIndex().getName(), uploadedIndexMetadata);
         }
-        return uploadMarker(clusterState, allUploadedIndexMetadata);
+        return uploadMarker(clusterState, allUploadedIndexMetadata, false);
     }
 
     /**
@@ -187,7 +186,19 @@ public class RemoteClusterStateService {
         for (String removedIndexName : previousStateIndexMetadataVersionByName.keySet()) {
             allUploadedIndexMetadata.remove(removedIndexName);
         }
-        return uploadMarker(clusterState, allUploadedIndexMetadata);
+        return uploadMarker(clusterState, allUploadedIndexMetadata, false);
+    }
+
+    public ClusterMetadataMarker markLastStateAsCommitted(ClusterState clusterState, ClusterMetadataMarker previousMarker)
+        throws IOException {
+        if (clusterState.nodes().isLocalNodeElectedClusterManager() == false) {
+            logger.error("Local node is not elected cluster manager. Exiting");
+            return null;
+        }
+        assert clusterState != null : "Last accepted cluster state is not set";
+        assert previousMarker != null : "Last cluster metadata marker is not set";
+        assert CLUSTER_REMOTE_CLUSTER_STATE_ENABLED_SETTING.get(settings) == true : "Remote cluster state is not enabled";
+        return uploadMarker(clusterState, previousMarker.getIndices(), true);
     }
 
     public ClusterState getLatestClusterState(String clusterUUID) {
@@ -209,7 +220,8 @@ public class RemoteClusterStateService {
 
     private ClusterMetadataMarker uploadMarker(
         ClusterState clusterState,
-        Map<String, ClusterMetadataMarker.UploadedIndexMetadata> uploadedIndexMetadata
+        Map<String, ClusterMetadataMarker.UploadedIndexMetadata> uploadedIndexMetadata,
+        boolean committed
     ) throws IOException {
         synchronized (this) {
             final String markerFileName = getMarkerFileName(clusterState.term(), clusterState.version());
@@ -218,7 +230,8 @@ public class RemoteClusterStateService {
                 clusterState.term(),
                 clusterState.getVersion(),
                 clusterState.metadata().clusterUUID(),
-                clusterState.stateUUID()
+                clusterState.stateUUID(),
+                committed
             );
             writeMetadataMarker(clusterState.getClusterName().value(), clusterState.metadata().clusterUUID(), marker, markerFileName);
             return marker;
