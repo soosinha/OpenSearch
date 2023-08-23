@@ -661,7 +661,11 @@ public final class ClusterSettings extends AbstractScopedSettings {
 
                 // Related to monitoring of task cancellation
                 TaskCancellationMonitoringSettings.IS_ENABLED_SETTING,
-                TaskCancellationMonitoringSettings.DURATION_MILLIS_SETTING
+                TaskCancellationMonitoringSettings.DURATION_MILLIS_SETTING,
+
+                // Remote cluster state settings
+                RemoteClusterStateService.REMOTE_CLUSTER_STATE_ENABLED_SETTING,
+                RemoteClusterStateService.REMOTE_CLUSTER_STATE_REPOSITORY_SETTING
             )
         )
     );
@@ -678,8 +682,7 @@ public final class ClusterSettings extends AbstractScopedSettings {
         List.of(
             IndicesService.CLUSTER_REMOTE_STORE_ENABLED_SETTING,
             IndicesService.CLUSTER_REMOTE_SEGMENT_STORE_REPOSITORY_SETTING,
-            IndicesService.CLUSTER_REMOTE_TRANSLOG_REPOSITORY_SETTING,
-            RemoteClusterStateService.REMOTE_CLUSTER_STATE_REPOSITORY_SETTING
+            IndicesService.CLUSTER_REMOTE_TRANSLOG_REPOSITORY_SETTING
         ),
         List.of(FeatureFlags.CONCURRENT_SEGMENT_SEARCH),
         List.of(
