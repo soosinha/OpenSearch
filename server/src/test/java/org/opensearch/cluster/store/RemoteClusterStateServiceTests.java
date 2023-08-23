@@ -59,8 +59,8 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
         repositoriesService = mock(RepositoriesService.class);
         when(repositoriesServiceSupplier.get()).thenReturn(repositoriesService);
         final Settings settings = Settings.builder()
-            .put(RemoteClusterStateService.CLUSTER_REMOTE_CLUSTER_STATE_ENABLED_SETTING.getKey(), true)
-            .put(RemoteClusterStateService.CLUSTER_REMOTE_CLUSTER_STATE_REPOSITORY_SETTING.getKey(), "remote_store_repository")
+            .put(RemoteClusterStateService.REMOTE_CLUSTER_STATE_ENABLED_SETTING.getKey(), true)
+            .put(RemoteClusterStateService.REMOTE_CLUSTER_STATE_REPOSITORY_SETTING.getKey(), "remote_store_repository")
             .build();
         blobStoreRepository = mock(BlobStoreRepository.class);
         when(repositoriesService.repository("remote_store_repository")).thenReturn(blobStoreRepository);

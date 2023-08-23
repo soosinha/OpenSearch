@@ -56,7 +56,7 @@ public class RemoteClusterStateService {
     /**
      * Used to specify if all indexes are to create with remote store enabled by default
      */
-    public static final Setting<Boolean> CLUSTER_REMOTE_CLUSTER_STATE_ENABLED_SETTING = Setting.boolSetting(
+    public static final Setting<Boolean> REMOTE_CLUSTER_STATE_ENABLED_SETTING = Setting.boolSetting(
         "cluster.remote_store.state.enabled",
         false,
         Property.NodeScope,
@@ -65,7 +65,7 @@ public class RemoteClusterStateService {
     /**
      * Used to specify default repo to use for translog upload for remote store backed indices
      */
-    public static final Setting<String> CLUSTER_REMOTE_CLUSTER_STATE_REPOSITORY_SETTING = Setting.simpleString(
+    public static final Setting<String> REMOTE_CLUSTER_STATE_REPOSITORY_SETTING = Setting.simpleString(
         "cluster.remote_store.state.repository",
         "",
         Property.NodeScope,
@@ -99,7 +99,7 @@ public class RemoteClusterStateService {
             logger.error("Local node is not elected cluster manager. Exiting");
             return null;
         }
-        assert CLUSTER_REMOTE_CLUSTER_STATE_ENABLED_SETTING.get(settings) == true : "Remote cluster state is not enabled";
+        assert REMOTE_CLUSTER_STATE_ENABLED_SETTING.get(settings) == true : "Remote cluster state is not enabled";
         initializeRepository();
 
         final Map<String, ClusterMetadataMarker.UploadedIndexMetadata> allUploadedIndexMetadata = new HashMap<>();
@@ -144,7 +144,7 @@ public class RemoteClusterStateService {
             return null;
         }
         assert previousClusterState.metadata().coordinationMetadata().term() == clusterState.metadata().coordinationMetadata().term();
-        assert CLUSTER_REMOTE_CLUSTER_STATE_ENABLED_SETTING.get(settings) == true : "Remote cluster state is not enabled";
+        assert REMOTE_CLUSTER_STATE_ENABLED_SETTING.get(settings) == true : "Remote cluster state is not enabled";
         final Map<String, Long> previousStateIndexMetadataVersionByName = new HashMap<>();
         for (final IndexMetadata indexMetadata : previousClusterState.metadata().indices().values()) {
             previousStateIndexMetadataVersionByName.put(indexMetadata.getIndex().getName(), indexMetadata.getVersion());
@@ -197,7 +197,7 @@ public class RemoteClusterStateService {
         }
         assert clusterState != null : "Last accepted cluster state is not set";
         assert previousMarker != null : "Last cluster metadata marker is not set";
-        assert CLUSTER_REMOTE_CLUSTER_STATE_ENABLED_SETTING.get(settings) == true : "Remote cluster state is not enabled";
+        assert REMOTE_CLUSTER_STATE_ENABLED_SETTING.get(settings) == true : "Remote cluster state is not enabled";
         return uploadMarker(clusterState, previousMarker.getIndices(), true);
     }
 
@@ -211,7 +211,7 @@ public class RemoteClusterStateService {
         if (blobStoreRepository != null) {
             return;
         }
-        final String remoteStoreRepo = CLUSTER_REMOTE_CLUSTER_STATE_REPOSITORY_SETTING.get(settings);
+        final String remoteStoreRepo = REMOTE_CLUSTER_STATE_REPOSITORY_SETTING.get(settings);
         assert remoteStoreRepo != null : "Remote Cluster State repository is not configured";
         final Repository repository = repositoriesService.get().repository(remoteStoreRepo);
         assert repository instanceof BlobStoreRepository : "Repository should be instance of BlobStoreRepository";
