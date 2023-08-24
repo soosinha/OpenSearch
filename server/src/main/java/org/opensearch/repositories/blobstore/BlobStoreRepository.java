@@ -793,6 +793,10 @@ public abstract class BlobStoreRepository extends AbstractLifecycleComponent imp
         return compressor;
     }
 
+    public NamedXContentRegistry getNamedXContentRegistry() {
+        return namedXContentRegistry;
+    }
+
     @Override
     public RepositoryStats stats() {
         final BlobStore store = blobStore.get();
