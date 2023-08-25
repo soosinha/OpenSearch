@@ -273,6 +273,16 @@ public class IndicesService extends AbstractLifecycleComponent
     );
 
     /**
+     * Used to specify default repo to use for translog upload for remote store backed indices
+     */
+    public static final Setting<String> CLUSTER_REMOTE_STATE_REPOSITORY_SETTING = Setting.simpleString(
+        "cluster.remote_store.state.repository",
+        "",
+        Property.NodeScope,
+        Property.Final
+    );
+
+    /**
      * The node's settings.
      */
     private final Settings settings;

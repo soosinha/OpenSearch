@@ -52,6 +52,8 @@ import org.opensearch.cluster.metadata.Metadata;
 import org.opensearch.cluster.metadata.MetadataIndexUpgradeService;
 import org.opensearch.cluster.node.DiscoveryNode;
 import org.opensearch.cluster.service.ClusterService;
+import org.opensearch.cluster.store.ClusterMetadataMarker;
+import org.opensearch.cluster.store.RemoteClusterStateService;
 import org.opensearch.common.SetOnce;
 import org.opensearch.common.collect.Tuple;
 import org.opensearch.common.settings.Settings;
@@ -84,29 +86,38 @@ import static org.opensearch.common.util.concurrent.OpenSearchExecutors.daemonTh
 /**
  * Loads (and maybe upgrades) cluster metadata at startup, and persistently stores cluster metadata for future restarts.
  *
- * When started, ensures that this version is compatible with the state stored on disk, and performs a state upgrade if necessary. Note that
- * the state being loaded when constructing the instance of this class is not necessarily the state that will be used as {@link
- * ClusterState#metadata()} because it might be stale or incomplete. Cluster-manager-eligible nodes must perform an election to find a complete and
- * non-stale state, and cluster-manager-ineligible nodes receive the real cluster state from the elected cluster-manager after joining the cluster.
+ * When started, ensures that this version is compatible with the state stored on disk, and performs a state upgrade if necessary. Note that the state being
+ * loaded when constructing the instance of this class is not necessarily the state that will be used as {@link ClusterState#metadata()} because it might be
+ * stale or incomplete. Cluster-manager-eligible nodes must perform an election to find a complete and non-stale state, and cluster-manager-ineligible nodes
+ * receive the real cluster state from the elected cluster-manager after joining the cluster.
  *
  * @opensearch.internal
  */
 public class GatewayMetaState implements Closeable {
 
+    private static final Logger logger = LogManager.getLogger(GatewayMetaState.class);
+
     /**
-     * Fake node ID for a voting configuration written by a cluster-manager-ineligible data node to indicate that its on-disk state is potentially
-     * stale (since it is written asynchronously after application, rather than before acceptance). This node ID means that if the node is
-     * restarted as a cluster-manager-eligible node then it does not win any elections until it has received a fresh cluster state.
+     * Fake node ID for a voting configuration written by a cluster-manager-ineligible data node to indicate that its on-disk state is potentially stale (since
+     * it is written asynchronously after application, rather than before acceptance). This node ID means that if the node is restarted as a
+     * cluster-manager-eligible node then it does not win any elections until it has received a fresh cluster state.
      */
     public static final String STALE_STATE_CONFIG_NODE_ID = "STALE_STATE_CONFIG";
 
     // Set by calling start()
     private final SetOnce<PersistedState> persistedState = new SetOnce<>();
 
+    private final SetOnce<PersistedState> remotePersistedState = new SetOnce<>();
+
     public PersistedState getPersistedState() {
         final PersistedState persistedState = this.persistedState.get();
         assert persistedState != null : "not started";
         return persistedState;
+    }
+
+    public PersistedState getRemotePersistedState() {
+        final PersistedState remotePersistedState = this.remotePersistedState.get();
+        return remotePersistedState;
     }
 
     public Metadata getMetadata() {
@@ -120,7 +131,8 @@ public class GatewayMetaState implements Closeable {
         MetaStateService metaStateService,
         MetadataIndexUpgradeService metadataIndexUpgradeService,
         MetadataUpgrader metadataUpgrader,
-        PersistedClusterStateService persistedClusterStateService
+        PersistedClusterStateService persistedClusterStateService,
+        RemoteClusterStateService remoteClusterStateService
     ) {
         assert persistedState.get() == null : "should only start once, but already have " + persistedState.get();
 
@@ -144,6 +156,7 @@ public class GatewayMetaState implements Closeable {
                 }
 
                 PersistedState persistedState = null;
+                PersistedState remotePersistedState = null;
                 boolean success = false;
                 try {
                     final ClusterState clusterState = prepareInitialClusterState(
@@ -157,6 +170,7 @@ public class GatewayMetaState implements Closeable {
 
                     if (DiscoveryNode.isClusterManagerNode(settings)) {
                         persistedState = new LucenePersistedState(persistedClusterStateService, currentTerm, clusterState);
+                        remotePersistedState = new RemotePersistedState(remoteClusterStateService);
                     } else {
                         persistedState = new AsyncLucenePersistedState(
                             settings,
@@ -182,6 +196,7 @@ public class GatewayMetaState implements Closeable {
                 }
 
                 this.persistedState.set(persistedState);
+                this.remotePersistedState.set(remotePersistedState);
             } catch (IOException e) {
                 throw new OpenSearchException("failed to load metadata", e);
             }
@@ -212,6 +227,27 @@ public class GatewayMetaState implements Closeable {
         }
     }
 
+    public void start(
+        Settings settings,
+        TransportService transportService,
+        ClusterService clusterService,
+        MetaStateService metaStateService,
+        MetadataIndexUpgradeService metadataIndexUpgradeService,
+        MetadataUpgrader metadataUpgrader,
+        PersistedClusterStateService persistedClusterStateService
+    ) {
+        start(
+            settings,
+            transportService,
+            clusterService,
+            metaStateService,
+            metadataIndexUpgradeService,
+            metadataUpgrader,
+            persistedClusterStateService,
+            null
+        );
+    }
+
     // exposed so it can be overridden by tests
     ClusterState prepareInitialClusterState(TransportService transportService, ClusterService clusterService, ClusterState clusterState) {
         assert clusterState.nodes().getLocalNode() == null : "prepareInitialClusterState must only be called once";
@@ -234,8 +270,8 @@ public class GatewayMetaState implements Closeable {
     }
 
     /**
-     * This method calls {@link MetadataIndexUpgradeService} to makes sure that indices are compatible with the current
-     * version. The MetadataIndexUpgradeService might also update obsolete settings if needed.
+     * This method calls {@link MetadataIndexUpgradeService} to makes sure that indices are compatible with the current version. The MetadataIndexUpgradeService
+     * might also update obsolete settings if needed.
      *
      * @return input <code>metadata</code> if no upgrade is needed or an upgraded metadata
      */
@@ -597,6 +633,86 @@ public class GatewayMetaState implements Closeable {
         @Override
         public void close() throws IOException {
             IOUtils.close(persistenceWriter.getAndSet(null));
+        }
+    }
+
+    /**
+     * Encapsulates the writing of metadata to a remote store using {@link RemoteClusterStateService}.
+     */
+    public static class RemotePersistedState implements PersistedState {
+
+        private ClusterState lastAcceptedState;
+        private ClusterMetadataMarker lastAcceptedMarker;
+        private final RemoteClusterStateService remoteClusterStateService;
+
+        public RemotePersistedState(final RemoteClusterStateService remoteClusterStateService) {
+            this.remoteClusterStateService = remoteClusterStateService;
+        }
+
+        @Override
+        public long getCurrentTerm() {
+            return lastAcceptedState != null ? lastAcceptedState.term() : 0L;
+        }
+
+        @Override
+        public ClusterState getLastAcceptedState() {
+            return lastAcceptedState;
+        }
+
+        @Override
+        public void setCurrentTerm(long currentTerm) {
+            // no-op
+            // For LucenePersistedState, setCurrentTerm is used only while handling StartJoinRequest by all follower nodes.
+            // But for RemotePersistedState, the state is only pushed by the active cluster. So this method is not required.
+        }
+
+        @Override
+        public void setLastAcceptedState(ClusterState clusterState) {
+            try {
+                logger.info("cluster state in setLastAcceptedState: {}", clusterState.toString());
+                if (lastAcceptedState == null || lastAcceptedState.blocks().hasGlobalBlock(GatewayService.STATE_NOT_RECOVERED_BLOCK)) {
+                    // On the initial bootstrap, repository will not be available. So we do not persist the cluster state and bail out.
+                    lastAcceptedState = clusterState;
+                    return;
+                } else {
+
+                }
+                final ClusterMetadataMarker marker;
+                if (shouldWriteFullClusterState(clusterState)) {
+                    marker = remoteClusterStateService.writeFullMetadata(clusterState);
+                } else {
+                    marker = remoteClusterStateService.writeIncrementalMetadata(
+                        lastAcceptedState,
+                        clusterState,
+                        lastAcceptedMarker
+                    );
+                }
+                lastAcceptedState = clusterState;
+                lastAcceptedMarker = marker;
+            } catch (Exception e) {
+                handleExceptionOnWrite(e);
+            }
+        }
+
+        private boolean shouldWriteFullClusterState(ClusterState clusterState) {
+            if (lastAcceptedState == null || lastAcceptedMarker == null || lastAcceptedState.term() != clusterState.term()) {
+                return true;
+            }
+            return false;
+        }
+
+        @Override
+        public void markLastAcceptedStateAsCommitted() {
+            // TODO
+        }
+
+        @Override
+        public void close() throws IOException {
+            PersistedState.super.close();
+        }
+
+        private void handleExceptionOnWrite(Exception e) {
+            throw ExceptionsHelper.convertToRuntime(e);
         }
     }
 }

@@ -110,7 +110,8 @@ public class MockGatewayMetaState extends GatewayMetaState {
                 bigArrays,
                 new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS),
                 () -> 0L
-            )
+            ),
+            null
         );
     }
 }

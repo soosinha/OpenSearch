@@ -205,7 +205,8 @@ public class DiscoveryModule {
                 new Random(Randomness.get().nextLong()),
                 rerouteService,
                 electionStrategy,
-                nodeHealthService
+                nodeHealthService,
+                gatewayMetaState::getRemotePersistedState
             );
         } else {
             throw new IllegalArgumentException("Unknown discovery type [" + discoveryType + "]");
