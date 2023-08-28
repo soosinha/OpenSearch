@@ -342,7 +342,7 @@ public class GatewayMetaState implements Closeable {
 
     @Override
     public void close() throws IOException {
-        IOUtils.close(persistedStateRegistry.getPersistedState(PersistedStateType.LOCAL));
+        IOUtils.close(persistedStateRegistry);
     }
 
     // visible for testing
