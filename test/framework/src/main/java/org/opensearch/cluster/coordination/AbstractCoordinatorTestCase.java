@@ -1144,7 +1144,8 @@ public class AbstractCoordinatorTestCase extends OpenSearchTestCase {
                     Randomness.get(),
                     (s, p, r) -> {},
                     getElectionStrategy(),
-                    nodeHealthService
+                    nodeHealthService,
+                    new PersistedStateRegistry()
                 );
                 clusterManagerService.setClusterStatePublisher(coordinator);
                 final GatewayService gatewayService = new GatewayService(

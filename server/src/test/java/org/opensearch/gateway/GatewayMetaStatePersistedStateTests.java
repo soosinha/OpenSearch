@@ -41,6 +41,7 @@ import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.coordination.CoordinationMetadata;
 import org.opensearch.cluster.coordination.CoordinationMetadata.VotingConfigExclusion;
 import org.opensearch.cluster.coordination.CoordinationState;
+import org.opensearch.cluster.coordination.PersistedStateRegistry;
 import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.cluster.metadata.Manifest;
 import org.opensearch.cluster.metadata.Metadata;
@@ -59,7 +60,9 @@ import org.opensearch.core.indices.breaker.NoneCircuitBreakerService;
 import org.opensearch.env.Environment;
 import org.opensearch.env.NodeEnvironment;
 import org.opensearch.env.TestEnvironment;
+import org.opensearch.gateway.remote.RemoteClusterStateService;
 import org.opensearch.node.Node;
+import org.opensearch.repositories.RepositoriesService;
 import org.opensearch.test.OpenSearchTestCase;
 import org.opensearch.threadpool.TestThreadPool;
 import org.opensearch.threadpool.ThreadPool;
@@ -83,6 +86,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 public class GatewayMetaStatePersistedStateTests extends OpenSearchTestCase {
+
     private NodeEnvironment nodeEnvironment;
     private ClusterName clusterName;
     private Settings settings;
@@ -425,6 +429,20 @@ public class GatewayMetaStatePersistedStateTests extends OpenSearchTestCase {
                 new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS),
                 () -> 0L
             );
+            final RemoteClusterStateService remoteClusterStateService = new RemoteClusterStateService(
+                nodeEnvironment.nodeId(),
+                () -> new RepositoriesService(
+                    settings,
+                    clusterService,
+                    transportService,
+                    Collections.emptyMap(),
+                    Collections.emptyMap(),
+                    transportService.getThreadPool()
+                ),
+                settings,
+                new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS),
+                () -> 0L
+            );
             gateway.start(
                 settings,
                 transportService,
@@ -432,7 +450,9 @@ public class GatewayMetaStatePersistedStateTests extends OpenSearchTestCase {
                 new MetaStateService(nodeEnvironment, xContentRegistry()),
                 null,
                 null,
-                persistedClusterStateService
+                persistedClusterStateService,
+                remoteClusterStateService,
+                new PersistedStateRegistry()
             );
             final CoordinationState.PersistedState persistedState = gateway.getPersistedState();
             assertThat(persistedState, instanceOf(GatewayMetaState.AsyncLucenePersistedState.class));
