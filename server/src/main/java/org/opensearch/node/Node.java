@@ -884,6 +884,7 @@ public class Node implements Closeable {
                 client,
                 identityService
             );
+            final PersistedStateRegistry persistedStateRegistry = new PersistedStateRegistry();
             final GatewayMetaState gatewayMetaState = new GatewayMetaState();
             final ResponseCollectorService responseCollectorService = new ResponseCollectorService(clusterService);
             final SearchTransportService searchTransportService = new SearchTransportService(
@@ -987,7 +988,8 @@ public class Node implements Closeable {
                 environment.configDir(),
                 gatewayMetaState,
                 rerouteService,
-                fsHealthService
+                fsHealthService,
+                persistedStateRegistry
             );
             final SearchPipelineService searchPipelineService = new SearchPipelineService(
                 clusterService,
@@ -1166,6 +1168,7 @@ public class Node implements Closeable {
                 b.bind(IdentityService.class).toInstance(identityService);
                 b.bind(Tracer.class).toInstance(tracer);
                 b.bind(RemoteClusterStateService.class).toInstance(remoteClusterStateService);
+                b.bind(PersistedStateRegistry.class).toInstance(persistedStateRegistry);
             });
             injector = modules.createInjector();
 
@@ -1314,7 +1317,8 @@ public class Node implements Closeable {
             injector.getInstance(MetadataIndexUpgradeService.class),
             injector.getInstance(MetadataUpgrader.class),
             injector.getInstance(PersistedClusterStateService.class),
-            injector.getInstance(RemoteClusterStateService.class)
+            injector.getInstance(RemoteClusterStateService.class),
+            injector.getInstance(PersistedStateRegistry.class)
         );
         if (Assertions.ENABLED) {
             try {
@@ -1333,7 +1337,8 @@ public class Node implements Closeable {
         }
         // we load the global state here (the persistent part of the cluster state stored on disk) to
         // pass it to the bootstrap checks to allow plugins to enforce certain preconditions based on the recovered state.
-        final Metadata onDiskMetadata = PersistedStateRegistry.getPersistedState(PersistedStateType.LOCAL)
+        final PersistedStateRegistry persistedStateRegistry = injector.getInstance(PersistedStateRegistry.class);
+        final Metadata onDiskMetadata = persistedStateRegistry.getPersistedState(PersistedStateType.LOCAL)
             .getLastAcceptedState()
             .metadata();
         assert onDiskMetadata != null : "metadata is null but shouldn't"; // this is never null
