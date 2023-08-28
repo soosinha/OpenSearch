@@ -182,6 +182,7 @@ public class Coordinator extends AbstractLifecycleComponent implements Discovery
     private JoinHelper.JoinAccumulator joinAccumulator;
     private Optional<CoordinatorPublication> currentPublication = Optional.empty();
     private final NodeHealthService nodeHealthService;
+    private final PersistedStateRegistry persistedStateRegistry;
 
     /**
      * @param nodeName The name of the node, used to name the {@link java.util.concurrent.ExecutorService} of the {@link SeedHostsResolver}.
@@ -202,7 +203,8 @@ public class Coordinator extends AbstractLifecycleComponent implements Discovery
         Random random,
         RerouteService rerouteService,
         ElectionStrategy electionStrategy,
-        NodeHealthService nodeHealthService
+        NodeHealthService nodeHealthService,
+        PersistedStateRegistry persistedStateRegistry
     ) {
         this.settings = settings;
         this.transportService = transportService;
@@ -287,6 +289,7 @@ public class Coordinator extends AbstractLifecycleComponent implements Discovery
             joinHelper::logLastFailedJoinAttempt
         );
         this.nodeHealthService = nodeHealthService;
+        this.persistedStateRegistry = persistedStateRegistry;
         this.localNodeCommissioned = true;
     }
 
@@ -827,7 +830,7 @@ public class Coordinator extends AbstractLifecycleComponent implements Discovery
                     getLocalNode(),
                     persistedState,
                     electionStrategy,
-                    PersistedStateRegistry.getPersistedState(PersistedStateType.REMOTE),
+                    persistedStateRegistry.getPersistedState(PersistedStateType.REMOTE),
                     settings
                 )
             );

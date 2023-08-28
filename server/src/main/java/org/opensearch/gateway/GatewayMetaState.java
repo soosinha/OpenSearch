@@ -104,14 +104,16 @@ public class GatewayMetaState implements Closeable {
      */
     public static final String STALE_STATE_CONFIG_NODE_ID = "STALE_STATE_CONFIG";
 
+    private PersistedStateRegistry persistedStateRegistry;
+
     public PersistedState getPersistedState() {
-        final PersistedState persistedState = PersistedStateRegistry.getPersistedState(PersistedStateType.LOCAL);
+        final PersistedState persistedState = persistedStateRegistry.getPersistedState(PersistedStateType.LOCAL);
         assert persistedState != null : "not started";
         return persistedState;
     }
 
     public Metadata getMetadata() {
-        return PersistedStateRegistry.getPersistedState(PersistedStateType.LOCAL).getLastAcceptedState().metadata();
+        return persistedStateRegistry.getPersistedState(PersistedStateType.LOCAL).getLastAcceptedState().metadata();
     }
 
     public void start(
@@ -122,10 +124,12 @@ public class GatewayMetaState implements Closeable {
         MetadataIndexUpgradeService metadataIndexUpgradeService,
         MetadataUpgrader metadataUpgrader,
         PersistedClusterStateService persistedClusterStateService,
-        RemoteClusterStateService remoteClusterStateService
+        RemoteClusterStateService remoteClusterStateService,
+        PersistedStateRegistry persistedStateRegistry
     ) {
-        assert PersistedStateRegistry.getPersistedState(PersistedStateType.LOCAL) == null : "should only start once, but already have "
-            + PersistedStateRegistry.getPersistedState(PersistedStateType.LOCAL);
+        this.persistedStateRegistry = persistedStateRegistry;
+        assert persistedStateRegistry.getPersistedState(PersistedStateType.LOCAL) == null : "should only start once, but already have "
+            + persistedStateRegistry.getPersistedState(PersistedStateType.LOCAL);
 
         if (DiscoveryNode.isClusterManagerNode(settings) || DiscoveryNode.isDataNode(settings)) {
             try {
@@ -189,9 +193,9 @@ public class GatewayMetaState implements Closeable {
                     }
                 }
 
-                PersistedStateRegistry.addPersistedState(PersistedStateType.LOCAL, persistedState);
+                persistedStateRegistry.addPersistedState(PersistedStateType.LOCAL, persistedState);
                 if (remotePersistedState != null) {
-                    PersistedStateRegistry.addPersistedState(PersistedStateType.REMOTE, remotePersistedState);
+                    persistedStateRegistry.addPersistedState(PersistedStateType.REMOTE, remotePersistedState);
                 }
             } catch (IOException e) {
                 throw new OpenSearchException("failed to load metadata", e);
@@ -219,7 +223,7 @@ public class GatewayMetaState implements Closeable {
                     throw new UncheckedIOException(e);
                 }
             }
-            PersistedStateRegistry.addPersistedState(PersistedStateType.LOCAL, new InMemoryPersistedState(currentTerm, clusterState));
+            persistedStateRegistry.addPersistedState(PersistedStateType.LOCAL, new InMemoryPersistedState(currentTerm, clusterState));
         }
     }
 
@@ -338,12 +342,12 @@ public class GatewayMetaState implements Closeable {
 
     @Override
     public void close() throws IOException {
-        IOUtils.close(PersistedStateRegistry.getPersistedState(PersistedStateType.LOCAL));
+        IOUtils.close(persistedStateRegistry.getPersistedState(PersistedStateType.LOCAL));
     }
 
     // visible for testing
     public boolean allPendingAsyncStatesWritten() {
-        final PersistedState ps = PersistedStateRegistry.getPersistedState(PersistedStateType.LOCAL);
+        final PersistedState ps = persistedStateRegistry.getPersistedState(PersistedStateType.LOCAL);
         if (ps instanceof AsyncLucenePersistedState) {
             return ((AsyncLucenePersistedState) ps).allPendingAsyncStatesWritten();
         } else {

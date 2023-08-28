@@ -20,9 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class PersistedStateRegistry {
 
-    private static final PersistedStateRegistry INSTANCE = new PersistedStateRegistry();
-
-    private PersistedStateRegistry() {}
+    public PersistedStateRegistry() {}
 
     /**
      * Distinct Types PersistedState which can be present on a node
@@ -34,13 +32,13 @@ public class PersistedStateRegistry {
 
     private final Map<PersistedStateType, PersistedState> persistedStates = new ConcurrentHashMap<>();
 
-    public static void addPersistedState(PersistedStateType persistedStateType, PersistedState persistedState) {
-        PersistedState existingState = INSTANCE.persistedStates.putIfAbsent(persistedStateType, persistedState);
+    public void addPersistedState(PersistedStateType persistedStateType, PersistedState persistedState) {
+        PersistedState existingState = this.persistedStates.putIfAbsent(persistedStateType, persistedState);
         assert existingState == null : "should only be set once, but already have " + existingState;
     }
 
-    public static PersistedState getPersistedState(PersistedStateType persistedStateType) {
-        return INSTANCE.persistedStates.get(persistedStateType);
+    public PersistedState getPersistedState(PersistedStateType persistedStateType) {
+        return this.persistedStates.get(persistedStateType);
     }
 
 }

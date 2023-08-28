@@ -41,6 +41,7 @@ import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.coordination.CoordinationMetadata;
 import org.opensearch.cluster.coordination.CoordinationMetadata.VotingConfigExclusion;
 import org.opensearch.cluster.coordination.CoordinationState;
+import org.opensearch.cluster.coordination.PersistedStateRegistry;
 import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.cluster.metadata.Manifest;
 import org.opensearch.cluster.metadata.Metadata;
@@ -450,7 +451,8 @@ public class GatewayMetaStatePersistedStateTests extends OpenSearchTestCase {
                 null,
                 null,
                 persistedClusterStateService,
-                remoteClusterStateService
+                remoteClusterStateService,
+                new PersistedStateRegistry()
             );
             final CoordinationState.PersistedState persistedState = gateway.getPersistedState();
             assertThat(persistedState, instanceOf(GatewayMetaState.AsyncLucenePersistedState.class));

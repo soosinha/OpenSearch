@@ -33,6 +33,7 @@
 package org.opensearch.gateway;
 
 import org.opensearch.cluster.ClusterState;
+import org.opensearch.cluster.coordination.PersistedStateRegistry;
 import org.opensearch.cluster.metadata.Manifest;
 import org.opensearch.cluster.metadata.Metadata;
 import org.opensearch.cluster.metadata.MetadataIndexUpgradeService;
@@ -127,7 +128,8 @@ public class MockGatewayMetaState extends GatewayMetaState {
                 settings,
                 new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS),
                 () -> 0L
-            )
+            ),
+            new PersistedStateRegistry()
         );
     }
 }
