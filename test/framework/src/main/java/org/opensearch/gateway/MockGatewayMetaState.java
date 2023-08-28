@@ -32,7 +32,6 @@
 
 package org.opensearch.gateway;
 
-import java.util.Collections;
 import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.metadata.Manifest;
 import org.opensearch.cluster.metadata.Metadata;
@@ -52,17 +51,18 @@ import org.opensearch.threadpool.ThreadPool;
 import org.opensearch.transport.TransportService;
 
 import java.io.IOException;
+import java.util.Collections;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * {@link GatewayMetaState} constructor accepts a lot of arguments. It's not always easy / convenient to construct these dependencies. This class constructor
- * takes far fewer dependencies and constructs usable {@link GatewayMetaState} with 2 restrictions: no metadata upgrade will be performed and no cluster state
- * updaters will be run. This is sufficient for most of the tests.
+ * {@link GatewayMetaState} constructor accepts a lot of arguments.
+ * It's not always easy / convenient to construct these dependencies.
+ * This class constructor takes far fewer dependencies and constructs usable {@link GatewayMetaState} with 2 restrictions:
+ * no metadata upgrade will be performed and no cluster state updaters will be run. This is sufficient for most of the tests.
  */
 public class MockGatewayMetaState extends GatewayMetaState {
-
     private final DiscoveryNode localNode;
     private final BigArrays bigArrays;
 
@@ -115,9 +115,19 @@ public class MockGatewayMetaState extends GatewayMetaState {
                 () -> 0L
             ),
             new RemoteClusterStateService(
-                () -> new RepositoriesService(settings, clusterService, transportService, Collections.emptyMap(), Collections.emptyMap(),
-                    transportService.getThreadPool()), settings, new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS),
-                () -> 0L)
+                nodeEnvironment.nodeId(),
+                () -> new RepositoriesService(
+                    settings,
+                    clusterService,
+                    transportService,
+                    Collections.emptyMap(),
+                    Collections.emptyMap(),
+                    transportService.getThreadPool()
+                ),
+                settings,
+                new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS),
+                () -> 0L
+            )
         );
     }
 }
