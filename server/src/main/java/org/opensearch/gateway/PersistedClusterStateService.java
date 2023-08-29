@@ -666,7 +666,7 @@ public class PersistedClusterStateService {
                         stats.numIndicesUpdated
                     );
                 } else {
-                    logger.debug(
+                    logger.info(
                         "writing cluster state took [{}ms]; " + "wrote full state with [{}] indices",
                         durationMillis,
                         stats.numIndicesUpdated
@@ -702,7 +702,7 @@ public class PersistedClusterStateService {
                         stats.numIndicesUnchanged
                     );
                 } else {
-                    logger.debug(
+                    logger.info(
                         "writing cluster state took [{}ms]; "
                             + "wrote global metadata [{}] and metadata for [{}] indices and skipped [{}] unchanged indices",
                         durationMillis,

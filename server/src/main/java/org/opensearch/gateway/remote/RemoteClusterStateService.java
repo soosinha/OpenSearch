@@ -341,14 +341,13 @@ public class RemoteClusterStateService implements Closeable {
         }
         final String remoteStoreRepo = REMOTE_CLUSTER_STATE_REPOSITORY_SETTING.get(settings);
         assert remoteStoreRepo != null : "Remote Cluster State repository is not configured";
-        final Repository repository;
         try {
-            repository = repositoriesService.get().repository(remoteStoreRepo);
+            final Repository repository = repositoriesService.get().repository(remoteStoreRepo);
+            assert repository instanceof BlobStoreRepository : "Repository should be instance of BlobStoreRepository";
+            blobStoreRepository = (BlobStoreRepository) repository;
         } catch (RepositoryMissingException e) {
-            return;
+            logger.error("Repository {} is not initialized", remoteStoreRepo);
         }
-        assert repository instanceof BlobStoreRepository : "Repository should be instance of BlobStoreRepository";
-        blobStoreRepository = (BlobStoreRepository) repository;
     }
 
     private ClusterMetadataMarker uploadMarker(
@@ -375,16 +374,22 @@ public class RemoteClusterStateService implements Closeable {
 
     private String writeIndexMetadata(String clusterName, String clusterUUID, IndexMetadata uploadIndexMetadata, String fileName)
         throws IOException {
+        final long startTimeMillis = relativeTimeMillisSupplier.getAsLong();
         final BlobContainer indexMetadataContainer = indexMetadataContainer(clusterName, clusterUUID, uploadIndexMetadata.getIndexUUID());
         INDEX_METADATA_FORMAT.write(uploadIndexMetadata, indexMetadataContainer, fileName, blobStoreRepository.getCompressor());
+        final long durationMillis = relativeTimeMillisSupplier.getAsLong() - startTimeMillis;
+        logger.info("Writing index metadata for {} took {} ms", uploadIndexMetadata.getIndex().getName(), durationMillis);
         // returning full path
         return indexMetadataContainer.path().buildAsString() + fileName;
     }
 
     private void writeMetadataMarker(String clusterName, String clusterUUID, ClusterMetadataMarker uploadMarker, String fileName)
         throws IOException {
+        final long startTimeMillis = relativeTimeMillisSupplier.getAsLong();
         final BlobContainer metadataMarkerContainer = markerContainer(clusterName, clusterUUID);
         CLUSTER_METADATA_MARKER_FORMAT.write(uploadMarker, metadataMarkerContainer, fileName, blobStoreRepository.getCompressor());
+        final long durationMillis = relativeTimeMillisSupplier.getAsLong() - startTimeMillis;
+        logger.info("Writing metadata marker took {} ms", durationMillis);
     }
 
     private BlobContainer indexMetadataContainer(String clusterName, String clusterUUID, String indexUUID) {
