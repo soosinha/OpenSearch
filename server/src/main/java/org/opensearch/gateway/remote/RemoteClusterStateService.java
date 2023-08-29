@@ -131,7 +131,6 @@ public class RemoteClusterStateService implements Closeable {
             return null;
         }
         assert REMOTE_CLUSTER_STATE_ENABLED_SETTING.get(settings) == true : "Remote cluster state is not enabled";
-        ensureRepositorySet();
 
         // any validations before/after upload ?
         final List<UploadedIndexMetadata> allUploadedIndexMetadata;
@@ -334,10 +333,9 @@ public class RemoteClusterStateService implements Closeable {
         }
     }
 
-    // Visible for testing
-    void ensureRepositorySet() {
+    public boolean ensureRepositorySet() {
         if (blobStoreRepository != null) {
-            return;
+            return true;
         }
         final String remoteStoreRepo = REMOTE_CLUSTER_STATE_REPOSITORY_SETTING.get(settings);
         assert remoteStoreRepo != null : "Remote Cluster State repository is not configured";
@@ -347,7 +345,9 @@ public class RemoteClusterStateService implements Closeable {
             blobStoreRepository = (BlobStoreRepository) repository;
         } catch (RepositoryMissingException e) {
             logger.error("Repository {} is not initialized", remoteStoreRepo);
+            return false;
         }
+        return true;
     }
 
     private ClusterMetadataMarker uploadMarker(

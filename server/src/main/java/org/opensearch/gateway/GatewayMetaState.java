@@ -648,7 +648,9 @@ public class GatewayMetaState implements Closeable {
         @Override
         public void setLastAcceptedState(ClusterState clusterState) {
             try {
-                if (lastAcceptedState == null || lastAcceptedState.blocks().hasGlobalBlock(GatewayService.STATE_NOT_RECOVERED_BLOCK)) {
+                if (lastAcceptedState == null
+                    || lastAcceptedState.blocks().hasGlobalBlock(GatewayService.STATE_NOT_RECOVERED_BLOCK) == true
+                    || remoteClusterStateService.ensureRepositorySet() == false) {
                     // On the initial bootstrap, repository will not be available. So we do not persist the cluster state and bail out.
                     lastAcceptedState = clusterState;
                     return;
@@ -668,13 +670,12 @@ public class GatewayMetaState implements Closeable {
         }
 
         private boolean verifyMarkerAndClusterState(ClusterMetadataMarker marker, ClusterState clusterState) {
-            assert marker != null: "ClusterMetadataMarker is null";
+            assert marker != null : "ClusterMetadataMarker is null";
             assert clusterState != null : "ClusterState is null";
             assert clusterState.metadata().indices().size() == marker.getIndices().size()
                 : "Number of indices in last accepted state and marker are different";
             marker.getIndices().stream().forEach(md -> {
-                assert clusterState.metadata().indices().containsKey(md.getIndexName())
-                    : "Last accepted state and marker are not in sync";
+                assert clusterState.metadata().indices().containsKey(md.getIndexName()) : "Last accepted state and marker are not in sync";
                 assert clusterState.metadata().indices().get(md.getIndexName()).getIndexUUID().equals(md.getIndexUUID())
                     : "Last accepted state and marker are not in sync";
             });

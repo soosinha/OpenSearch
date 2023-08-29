@@ -8,13 +8,13 @@
 
 package org.opensearch.cluster.coordination;
 
+import org.opensearch.cluster.coordination.CoordinationState.PersistedState;
+import org.opensearch.common.util.io.IOUtils;
+
 import java.io.Closeable;
 import java.io.IOException;
-import org.opensearch.cluster.coordination.CoordinationState.PersistedState;
-
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import org.opensearch.common.util.io.IOUtils;
 
 /**
  * A class which encapsulates the PersistedStates
@@ -32,6 +32,7 @@ public class PersistedStateRegistry implements Closeable {
         LOCAL,
         REMOTE;
     }
+
     private final Map<PersistedStateType, PersistedState> persistedStates = new ConcurrentHashMap<>();
 
     public void addPersistedState(PersistedStateType persistedStateType, PersistedState persistedState) {
