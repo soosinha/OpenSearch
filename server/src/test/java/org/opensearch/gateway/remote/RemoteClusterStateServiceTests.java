@@ -38,6 +38,7 @@ import org.junit.Assert;
 import org.junit.Before;
 
 import java.io.ByteArrayInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
