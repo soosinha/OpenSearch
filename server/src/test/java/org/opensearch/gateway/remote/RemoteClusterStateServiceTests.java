@@ -8,6 +8,7 @@
 
 package org.opensearch.gateway.remote;
 
+import java.io.FileNotFoundException;
 import org.opensearch.Version;
 import org.opensearch.cluster.ClusterName;
 import org.opensearch.cluster.ClusterState;
@@ -37,7 +38,6 @@ import org.junit.Assert;
 import org.junit.Before;
 
 import java.io.ByteArrayInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
