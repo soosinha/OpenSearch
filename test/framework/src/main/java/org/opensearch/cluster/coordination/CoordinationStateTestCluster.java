@@ -160,7 +160,6 @@ public class CoordinationStateTestCluster {
             );
             persistedStateRegistry = new PersistedStateRegistry();
             persistedStateRegistry.addPersistedState(PersistedStateType.LOCAL, persistedState);
-            persistedStateRegistry.addPersistedState(PersistedStateType.REMOTE, remotePersistedState);
 
             this.electionStrategy = electionStrategy;
             state = new CoordinationState(localNode, persistedStateRegistry, electionStrategy, Settings.EMPTY);
