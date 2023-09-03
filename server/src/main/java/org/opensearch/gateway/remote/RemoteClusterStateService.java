@@ -236,7 +236,7 @@ public class RemoteClusterStateService implements Closeable {
                 numIndicesUnchanged
             );
         } else {
-            logger.trace(
+            logger.info(
                 "writing cluster state took [{}ms]; " + "wrote metadata for [{}] indices and skipped [{}] unchanged indices",
                 durationMillis,
                 numIndicesUpdated,
