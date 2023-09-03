@@ -190,7 +190,8 @@ class S3AsyncService implements Closeable {
         // We do this because directly constructing the client is deprecated (was already deprecated in 1.1.223 too)
         // so this change removes that usage of a deprecated API.
         builder.endpointOverride(URI.create(endpoint));
-        builder.region(Region.of(clientSettings.region));
+        //builder.region(Region.of(clientSettings.region));
+        builder.region(Region.of("us-east-1")); //hack remove
         if (clientSettings.pathStyleAccess) {
             builder.forcePathStyle(true);
         }
