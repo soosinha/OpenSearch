@@ -236,7 +236,7 @@ public class RemoteClusterStateService implements Closeable {
                 numIndicesUnchanged
             );
         } else {
-            logger.trace(
+            logger.info(
                 "writing cluster state took [{}ms]; " + "wrote metadata for [{}] indices and skipped [{}] unchanged indices",
                 durationMillis,
                 numIndicesUpdated,
@@ -345,11 +345,11 @@ public class RemoteClusterStateService implements Closeable {
         final String remoteStoreRepo = REMOTE_CLUSTER_STATE_REPOSITORY_SETTING.get(settings);
         assert remoteStoreRepo != null : "Remote Cluster State repository is not configured";
         final Repository repository;
-        try {
+//        try {
             repository = repositoriesService.get().repository(remoteStoreRepo);
-        } catch (RepositoryMissingException e) {
-            return;
-        }
+//        } catch (RepositoryMissingException e) {
+//            return;
+//        }
         assert repository instanceof BlobStoreRepository : "Repository should be instance of BlobStoreRepository";
         blobStoreRepository = (BlobStoreRepository) repository;
     }
