@@ -68,7 +68,6 @@ public class ConcurrentSearchTasksIT extends AbstractTasksIT {
         for (Setting builtInFlag : FeatureFlagSettings.BUILT_IN_FEATURE_FLAGS) {
             featureSettings.put(builtInFlag.getKey(), builtInFlag.getDefaultRaw(Settings.EMPTY));
         }
-        featureSettings.put(FeatureFlags.REMOTE_STORE, "true");
         featureSettings.put(FeatureFlags.SEGMENT_REPLICATION_EXPERIMENTAL, "true");
         featureSettings.put(FeatureFlags.CONCURRENT_SEGMENT_SEARCH, true);
         return featureSettings.build();

@@ -803,7 +803,7 @@ public abstract class OpenSearchIntegTestCase extends OpenSearchTestCase {
         }
         // Enabling Telemetry setting by default
         featureSettings.put(FeatureFlags.TELEMETRY_SETTING.getKey(), true);
-        featureSettings.put(FeatureFlags.REMOTE_STORE, "true");
+        //featureSettings.put(FeatureFlags.REMOTE_STORE, "true");
         featureSettings.put(FeatureFlags.SEGMENT_REPLICATION_EXPERIMENTAL, "true");
         return featureSettings.build();
     }
