@@ -92,7 +92,7 @@ public class MatchedQueriesIT extends ParameterizedOpenSearchIntegTestCase {
         client().prepareIndex("test").setId("3").setSource("name", "test3", "number", 3).get();
         refresh();
 
-        SearchResponse searchResponse = client().prepareSearch()
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(
                 boolQuery().must(matchAllQuery())
                     .filter(
@@ -114,7 +114,7 @@ public class MatchedQueriesIT extends ParameterizedOpenSearchIntegTestCase {
             }
         }
 
-        searchResponse = client().prepareSearch()
+        searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(
                 boolQuery().should(rangeQuery("number").lte(2).queryName("test1")).should(rangeQuery("number").gt(2).queryName("test2"))
             )
@@ -142,7 +142,7 @@ public class MatchedQueriesIT extends ParameterizedOpenSearchIntegTestCase {
         client().prepareIndex("test").setId("3").setSource("name", "test").get();
         refresh();
 
-        SearchResponse searchResponse = client().prepareSearch()
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(matchAllQuery())
             .setPostFilter(
                 boolQuery().should(termQuery("name", "test").queryName("name")).should(termQuery("title", "title1").queryName("title"))
@@ -162,7 +162,7 @@ public class MatchedQueriesIT extends ParameterizedOpenSearchIntegTestCase {
             }
         }
 
-        searchResponse = client().prepareSearch()
+        searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(matchAllQuery())
             .setPostFilter(
                 boolQuery().should(termQuery("name", "test").queryName("name")).should(termQuery("title", "title1").queryName("title"))
@@ -193,7 +193,7 @@ public class MatchedQueriesIT extends ParameterizedOpenSearchIntegTestCase {
         client().prepareIndex("test").setId("3").setSource("name", "test", "title", "title3").get();
         refresh();
 
-        SearchResponse searchResponse = client().prepareSearch()
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(boolQuery().must(matchAllQuery()).filter(termsQuery("title", "title1", "title2", "title3").queryName("title")))
             .setPostFilter(termQuery("name", "test").queryName("name"))
             .get();
@@ -208,7 +208,7 @@ public class MatchedQueriesIT extends ParameterizedOpenSearchIntegTestCase {
             }
         }
 
-        searchResponse = client().prepareSearch()
+        searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(termsQuery("title", "title1", "title2", "title3").queryName("title"))
             .setPostFilter(matchQuery("name", "test").queryName("name"))
             .get();
@@ -231,7 +231,7 @@ public class MatchedQueriesIT extends ParameterizedOpenSearchIntegTestCase {
         client().prepareIndex("test1").setId("1").setSource("title", "title1").get();
         refresh();
 
-        SearchResponse searchResponse = client().prepareSearch()
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(QueryBuilders.regexpQuery("title", "title1").queryName("regex"))
             .get();
         assertHitCount(searchResponse, 1L);
@@ -253,7 +253,7 @@ public class MatchedQueriesIT extends ParameterizedOpenSearchIntegTestCase {
         client().prepareIndex("test1").setId("1").setSource("title", "title1").get();
         refresh();
 
-        SearchResponse searchResponse = client().prepareSearch()
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(QueryBuilders.prefixQuery("title", "title").queryName("prefix"))
             .get();
         assertHitCount(searchResponse, 1L);
@@ -275,7 +275,7 @@ public class MatchedQueriesIT extends ParameterizedOpenSearchIntegTestCase {
         client().prepareIndex("test1").setId("1").setSource("title", "title1").get();
         refresh();
 
-        SearchResponse searchResponse = client().prepareSearch()
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(QueryBuilders.fuzzyQuery("title", "titel1").queryName("fuzzy"))
             .get();
         assertHitCount(searchResponse, 1L);
@@ -297,7 +297,7 @@ public class MatchedQueriesIT extends ParameterizedOpenSearchIntegTestCase {
         client().prepareIndex("test1").setId("1").setSource("title", "title1").get();
         refresh();
 
-        SearchResponse searchResponse = client().prepareSearch()
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(QueryBuilders.wildcardQuery("title", "titl*").queryName("wildcard"))
             .get();
         assertHitCount(searchResponse, 1L);
@@ -319,7 +319,7 @@ public class MatchedQueriesIT extends ParameterizedOpenSearchIntegTestCase {
         client().prepareIndex("test1").setId("1").setSource("title", "title1 title2").get();
         refresh();
 
-        SearchResponse searchResponse = client().prepareSearch()
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(QueryBuilders.spanFirstQuery(QueryBuilders.spanTermQuery("title", "title1"), 10).queryName("span"))
             .get();
         assertHitCount(searchResponse, 1L);
@@ -348,7 +348,7 @@ public class MatchedQueriesIT extends ParameterizedOpenSearchIntegTestCase {
         // Execute search at least two times to load it in cache
         int iter = scaledRandomIntBetween(2, 10);
         for (int i = 0; i < iter; i++) {
-            SearchResponse searchResponse = client().prepareSearch()
+            SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
                 .setQuery(
                     boolQuery().minimumShouldMatch(1)
                         .should(queryStringQuery("dolor").queryName("dolor"))
@@ -385,7 +385,7 @@ public class MatchedQueriesIT extends ParameterizedOpenSearchIntegTestCase {
         BytesReference termBytes = XContentHelper.toXContent(termQueryBuilder, MediaTypeRegistry.JSON, false);
         QueryBuilder[] queries = new QueryBuilder[] { wrapperQuery(matchBytes), constantScoreQuery(wrapperQuery(termBytes)) };
         for (QueryBuilder query : queries) {
-            SearchResponse searchResponse = client().prepareSearch().setQuery(query).get();
+            SearchResponse searchResponse = client().prepareSearch().setPreference("_primary").setQuery(query).get();
             assertHitCount(searchResponse, 1L);
             assertThat(searchResponse.getHits().getAt(0).getMatchedQueries()[0], equalTo("abc"));
         }

@@ -900,7 +900,7 @@ public class InnerHitsIT extends ParameterizedOpenSearchIntegTestCase {
 
         // the field name (comments.message) used for source filtering should be the same as when using that field for
         // other features (like in the query dsl or aggs) in order for consistency:
-        SearchResponse response = client().prepareSearch()
+        SearchResponse response = client().prepareSearch().setPreference("_primary")
             .setQuery(
                 nestedQuery("comments", matchQuery("comments.message", "fox"), ScoreMode.None).innerHit(
                     new InnerHitBuilder().setFetchSourceContext(new FetchSourceContext(true, new String[] { "comments.message" }, null))
@@ -922,7 +922,7 @@ public class InnerHitsIT extends ParameterizedOpenSearchIntegTestCase {
             equalTo("fox ate rabbit x y z")
         );
 
-        response = client().prepareSearch()
+        response = client().prepareSearch().setPreference("_primary")
             .setQuery(nestedQuery("comments", matchQuery("comments.message", "fox"), ScoreMode.None).innerHit(new InnerHitBuilder()))
             .get();
         assertNoFailures(response);
@@ -942,7 +942,7 @@ public class InnerHitsIT extends ParameterizedOpenSearchIntegTestCase {
 
         // Source filter on a field that does not exist inside the nested document and just check that we do not fail and
         // return an empty _source:
-        response = client().prepareSearch()
+        response = client().prepareSearch().setPreference("_primary")
             .setQuery(
                 nestedQuery("comments", matchQuery("comments.message", "away"), ScoreMode.None).innerHit(
                     new InnerHitBuilder().setFetchSourceContext(
@@ -957,7 +957,7 @@ public class InnerHitsIT extends ParameterizedOpenSearchIntegTestCase {
         assertThat(response.getHits().getAt(0).getInnerHits().get("comments").getAt(0).getSourceAsMap().size(), equalTo(0));
 
         // Check that inner hits contain _source even when it's disabled on the root request.
-        response = client().prepareSearch()
+        response = client().prepareSearch().setPreference("_primary")
             .setFetchSource(false)
             .setQuery(nestedQuery("comments", matchQuery("comments.message", "fox"), ScoreMode.None).innerHit(new InnerHitBuilder()))
             .get();

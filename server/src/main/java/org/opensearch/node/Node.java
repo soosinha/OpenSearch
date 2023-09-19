@@ -43,6 +43,7 @@ import org.opensearch.Version;
 import org.opensearch.action.ActionModule;
 import org.opensearch.action.ActionModule.DynamicActionRegistry;
 import org.opensearch.action.ActionType;
+import org.opensearch.action.admin.cluster.remotestore.RemoteStoreNodeService;
 import org.opensearch.action.admin.cluster.snapshots.status.TransportNodesSnapshotsStatus;
 import org.opensearch.action.search.SearchExecutionStatsCollector;
 import org.opensearch.action.search.SearchPhaseController;
@@ -268,6 +269,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static java.util.stream.Collectors.toList;
+import static org.opensearch.action.admin.cluster.remotestore.RemoteStoreNode.REMOTE_STORE_NODE_ATTRIBUTE_KEY_PREFIX;
 import static org.opensearch.common.util.FeatureFlags.TELEMETRY;
 import static org.opensearch.env.NodeEnvironment.collectFileCacheDataPath;
 import static org.opensearch.index.ShardIndexingPressureSettings.SHARD_INDEXING_PRESSURE_ENABLED_ATTRIBUTE_KEY;
@@ -1170,13 +1172,12 @@ public class Node implements Closeable {
                         .toInstance(new PeerRecoveryTargetService(threadPool, transportService, recoverySettings, clusterService));
                     b.bind(SegmentReplicationTargetService.class)
                         .toInstance(
-                            new SegmentReplicationTargetService(
+                            newSegmentReplicationTargetService(
                                 threadPool,
-                                recoverySettings,
-                                transportService,
-                                new SegmentReplicationSourceFactory(transportService, recoverySettings, clusterService),
+                                clusterService,
                                 indicesService,
-                                clusterService
+                                transportService,
+                                recoverySettings
                             )
                         );
                     b.bind(SegmentReplicationSourceService.class)
@@ -1244,6 +1245,23 @@ public class Node implements Closeable {
                 IOUtils.closeWhileHandlingException(resourcesToClose);
             }
         }
+    }
+
+    protected SegmentReplicationTargetService newSegmentReplicationTargetService(
+        ThreadPool threadPool,
+        ClusterService clusterService,
+        IndicesService indicesService,
+        TransportService transportService,
+        RecoverySettings recoverySettings
+    ) {
+        return new SegmentReplicationTargetService(
+            threadPool,
+            recoverySettings,
+            transportService,
+            new SegmentReplicationSourceFactory(transportService, recoverySettings, clusterService),
+            indicesService,
+            clusterService
+        );
     }
 
     protected TransportService newTransportService(

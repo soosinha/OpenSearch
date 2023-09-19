@@ -127,7 +127,7 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
         client().admin().indices().refresh(refreshRequest()).actionGet();
 
         logger.info("Running moreLikeThis");
-        SearchResponse response = client().prepareSearch()
+        SearchResponse response = client().prepareSearch().setPreference("_primary")
             .setQuery(new MoreLikeThisQueryBuilder(null, new Item[] { new Item("test", "1") }).minTermFreq(1).minDocFreq(1))
             .get();
         assertHitCount(response, 1L);
@@ -157,7 +157,7 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
         client().admin().indices().refresh(refreshRequest()).actionGet();
 
         logger.info("Running moreLikeThis");
-        SearchResponse response = client().prepareSearch()
+        SearchResponse response = client().prepareSearch().setPreference("_primary")
             .setQuery(new MoreLikeThisQueryBuilder(null, new Item[] { new Item("test", "1") }).minTermFreq(1).minDocFreq(1))
             .get();
         assertHitCount(response, 1L);
@@ -191,7 +191,7 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
 
         client().admin().indices().refresh(refreshRequest()).actionGet();
 
-        SearchResponse searchResponse = client().prepareSearch()
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(
                 moreLikeThisQuery(new String[] { "myField", "empty" }, null, new Item[] { new Item("test", "1") }).minTermFreq(1)
                     .minDocFreq(1)
@@ -216,7 +216,7 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
         client().admin().indices().refresh(refreshRequest()).actionGet();
 
         logger.info("Running moreLikeThis");
-        SearchResponse response = client().prepareSearch()
+        SearchResponse response = client().prepareSearch().setPreference("_primary")
             .setQuery(new MoreLikeThisQueryBuilder(null, new Item[] { new Item("test", "1") }).minTermFreq(1).minDocFreq(1))
             .get();
         assertHitCount(response, 0L);
@@ -258,7 +258,7 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
         client().admin().indices().refresh(refreshRequest()).actionGet();
 
         logger.info("Running moreLikeThis on index");
-        SearchResponse response = client().prepareSearch()
+        SearchResponse response = client().prepareSearch().setPreference("_primary")
             .setQuery(new MoreLikeThisQueryBuilder(null, new Item[] { new Item("test", "1") }).minTermFreq(1).minDocFreq(1))
             .get();
         assertHitCount(response, 2L);
@@ -305,7 +305,7 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
             .actionGet();
         refresh(indexName);
 
-        SearchResponse response = client().prepareSearch()
+        SearchResponse response = client().prepareSearch().setPreference("_primary")
             .setQuery(new MoreLikeThisQueryBuilder(null, new Item[] { new Item(aliasName, "1") }).minTermFreq(1).minDocFreq(1))
             .get();
         assertHitCount(response, 2L);
@@ -322,12 +322,12 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
         client().admin().indices().prepareRefresh("foo").get();
         assertThat(ensureGreen(), equalTo(ClusterHealthStatus.GREEN));
 
-        SearchResponse response = client().prepareSearch()
+        SearchResponse response = client().prepareSearch().setPreference("_primary")
             .setQuery(new MoreLikeThisQueryBuilder(null, new Item[] { new Item("foo", "1") }))
             .get();
         assertNoFailures(response);
         assertThat(response, notNullValue());
-        response = client().prepareSearch().setQuery(new MoreLikeThisQueryBuilder(null, new Item[] { new Item("foo", "1") })).get();
+        response = client().prepareSearch().setPreference("_primary").setQuery(new MoreLikeThisQueryBuilder(null, new Item[] { new Item("foo", "1") })).get();
         assertNoFailures(response);
         assertThat(response, notNullValue());
     }
@@ -345,7 +345,7 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
             .get();
         client().admin().indices().prepareRefresh("foo").get();
 
-        SearchResponse response = client().prepareSearch()
+        SearchResponse response = client().prepareSearch().setPreference("_primary")
             .setQuery(new MoreLikeThisQueryBuilder(null, new Item[] { new Item("foo", "1").routing("2") }))
             .get();
         assertNoFailures(response);
@@ -368,7 +368,7 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
             .setRouting("4000")
             .get();
         client().admin().indices().prepareRefresh("foo").get();
-        SearchResponse response = client().prepareSearch()
+        SearchResponse response = client().prepareSearch().setPreference("_primary")
             .setQuery(new MoreLikeThisQueryBuilder(null, new Item[] { new Item("foo", "1").routing("4000") }))
             .get();
         assertNoFailures(response);
@@ -403,14 +403,14 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
         refresh();
 
         // Implicit list of fields -> ignore numeric fields
-        SearchResponse searchResponse = client().prepareSearch()
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(new MoreLikeThisQueryBuilder(null, new Item[] { new Item("test", "1") }).minTermFreq(1).minDocFreq(1))
             .get();
         assertHitCount(searchResponse, 1L);
 
         // Explicit list of fields including numeric fields -> fail
         assertRequestBuilderThrows(
-            client().prepareSearch()
+            client().prepareSearch().setPreference("_primary")
                 .setQuery(
                     new MoreLikeThisQueryBuilder(new String[] { "string_value", "int_value" }, null, new Item[] { new Item("test", "1") })
                         .minTermFreq(1)
@@ -421,26 +421,26 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
 
         // mlt query with no field -> exception because _all is not enabled)
         assertRequestBuilderThrows(
-            client().prepareSearch().setQuery(moreLikeThisQuery(new String[] { "index" }).minTermFreq(1).minDocFreq(1)),
+            client().prepareSearch().setPreference("_primary").setQuery(moreLikeThisQuery(new String[] { "index" }).minTermFreq(1).minDocFreq(1)),
             SearchPhaseExecutionException.class
         );
 
         // mlt query with string fields
-        searchResponse = client().prepareSearch()
+        searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(moreLikeThisQuery(new String[] { "string_value" }, new String[] { "index" }, null).minTermFreq(1).minDocFreq(1))
             .get();
         assertHitCount(searchResponse, 2L);
 
         // mlt query with at least a numeric field -> fail by default
         assertRequestBuilderThrows(
-            client().prepareSearch()
+            client().prepareSearch().setPreference("_primary")
                 .setQuery(moreLikeThisQuery(new String[] { "string_value", "int_value" }, new String[] { "index" }, null)),
             SearchPhaseExecutionException.class
         );
 
         // mlt query with at least a numeric field -> fail by command
         assertRequestBuilderThrows(
-            client().prepareSearch()
+            client().prepareSearch().setPreference("_primary")
                 .setQuery(
                     moreLikeThisQuery(new String[] { "string_value", "int_value" }, new String[] { "index" }, null).failOnUnsupportedField(
                         true
@@ -450,7 +450,7 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
         );
 
         // mlt query with at least a numeric field but fail_on_unsupported_field set to false
-        searchResponse = client().prepareSearch()
+        searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(
                 moreLikeThisQuery(new String[] { "string_value", "int_value" }, new String[] { "index" }, null).minTermFreq(1)
                     .minDocFreq(1)
@@ -461,14 +461,14 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
 
         // mlt field query on a numeric field -> failure by default
         assertRequestBuilderThrows(
-            client().prepareSearch()
+            client().prepareSearch().setPreference("_primary")
                 .setQuery(moreLikeThisQuery(new String[] { "int_value" }, new String[] { "42" }, null).minTermFreq(1).minDocFreq(1)),
             SearchPhaseExecutionException.class
         );
 
         // mlt field query on a numeric field -> failure by command
         assertRequestBuilderThrows(
-            client().prepareSearch()
+            client().prepareSearch().setPreference("_primary")
                 .setQuery(
                     moreLikeThisQuery(new String[] { "int_value" }, new String[] { "42" }, null).minTermFreq(1)
                         .minDocFreq(1)
@@ -478,7 +478,7 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
         );
 
         // mlt field query on a numeric field but fail_on_unsupported_field set to false
-        searchResponse = client().prepareSearch()
+        searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(
                 moreLikeThisQuery(new String[] { "int_value" }, new String[] { "42" }, null).minTermFreq(1)
                     .minDocFreq(1)
@@ -513,7 +513,7 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
         QueryBuilder query = QueryBuilders.moreLikeThisQuery(new String[] { "alias" }, null, new Item[] { item })
             .minTermFreq(1)
             .minDocFreq(1);
-        SearchResponse response = client().prepareSearch().setQuery(query).get();
+        SearchResponse response = client().prepareSearch().setPreference("_primary").setQuery(query).get();
         assertHitCount(response, 1L);
     }
 
@@ -550,7 +550,7 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
         client().admin().indices().refresh(refreshRequest()).actionGet();
 
         logger.info("Running More Like This with include true");
-        SearchResponse response = client().prepareSearch()
+        SearchResponse response = client().prepareSearch().setPreference("_primary")
             .setQuery(
                 new MoreLikeThisQueryBuilder(null, new Item[] { new Item("test", "1") }).minTermFreq(1)
                     .minDocFreq(1)
@@ -560,7 +560,7 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
             .get();
         assertOrderedSearchHits(response, "1", "2");
 
-        response = client().prepareSearch()
+        response = client().prepareSearch().setPreference("_primary")
             .setQuery(
                 new MoreLikeThisQueryBuilder(null, new Item[] { new Item("test", "2") }).minTermFreq(1)
                     .minDocFreq(1)
@@ -571,7 +571,7 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
         assertOrderedSearchHits(response, "2", "1");
 
         logger.info("Running More Like This with include false");
-        response = client().prepareSearch()
+        response = client().prepareSearch().setPreference("_primary")
             .setQuery(
                 new MoreLikeThisQueryBuilder(null, new Item[] { new Item("test", "1") }).minTermFreq(1)
                     .minDocFreq(1)
@@ -611,7 +611,7 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
             .include(true)
             .minTermFreq(1)
             .minDocFreq(1);
-        SearchResponse mltResponse = client().prepareSearch().setQuery(queryBuilder).get();
+        SearchResponse mltResponse = client().prepareSearch().setPreference("_primary").setQuery(queryBuilder).get();
         assertHitCount(mltResponse, 3L);
     }
 
@@ -875,7 +875,7 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
             logger.info("Running moreLikeThis with one item without routing attribute");
             SearchPhaseExecutionException exception = expectThrows(
                 SearchPhaseExecutionException.class,
-                () -> client().prepareSearch()
+                () -> client().prepareSearch().setPreference("_primary")
                     .setQuery(new MoreLikeThisQueryBuilder(null, new Item[] { new Item("test", "1") }).minTermFreq(1).minDocFreq(1))
                     .get()
             );
@@ -889,7 +889,7 @@ public class MoreLikeThisIT extends ParameterizedOpenSearchIntegTestCase {
             logger.info("Running moreLikeThis with one item with routing attribute and two items without routing attribute");
             SearchPhaseExecutionException exception = expectThrows(
                 SearchPhaseExecutionException.class,
-                () -> client().prepareSearch()
+                () -> client().prepareSearch().setPreference("_primary")
                     .setQuery(
                         new MoreLikeThisQueryBuilder(
                             null,

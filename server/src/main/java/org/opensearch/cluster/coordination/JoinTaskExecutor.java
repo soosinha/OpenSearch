@@ -33,6 +33,8 @@ package org.opensearch.cluster.coordination;
 
 import org.apache.logging.log4j.Logger;
 import org.opensearch.Version;
+import org.opensearch.action.admin.cluster.remotestore.RemoteStoreNode;
+import org.opensearch.action.admin.cluster.remotestore.RemoteStoreNodeService;
 import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.ClusterStateTaskExecutor;
 import org.opensearch.cluster.NotClusterManagerException;
@@ -62,6 +64,9 @@ import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
+import static org.opensearch.action.admin.cluster.remotestore.RemoteStoreNodeService.CompatibilityMode;
+import static org.opensearch.action.admin.cluster.remotestore.RemoteStoreNodeService.CompatibilityMode.STRICT;
+import static org.opensearch.action.admin.cluster.remotestore.RemoteStoreNodeService.REMOTE_STORE_COMPATIBILITY_MODE_SETTING;
 import static org.opensearch.cluster.decommission.DecommissionHelper.nodeCommissioned;
 import static org.opensearch.gateway.GatewayService.STATE_NOT_RECOVERED_BLOCK;
 import static org.opensearch.node.remotestore.RemoteStoreNodeService.CompatibilityMode;
@@ -211,12 +216,20 @@ public class JoinTaskExecutor implements ClusterStateTaskExecutor<JoinTaskExecut
                     // we have added the same check in handleJoinRequest method and adding it here as this method
                     // would guarantee that a decommissioned node would never be able to join the cluster and ensures correctness
                     ensureNodeCommissioned(node, currentState.metadata());
+
+                    ensureRemoteStoreNodesCompatibility(node, currentState);
                     nodesBuilder.add(node);
                     nodesChanged = true;
                     minClusterNodeVersion = Version.min(minClusterNodeVersion, node.getVersion());
                     maxClusterNodeVersion = Version.max(maxClusterNodeVersion, node.getVersion());
                     if (node.isClusterManagerNode()) {
                         joiniedNodeNameIds.put(node.getName(), node.getId());
+                    }
+                    if (node.isRemoteStoreNode()) {
+                        // Try updating repositories metadata in cluster state once its compatible with the cluster.
+                        newState = ClusterState.builder(
+                            remoteStoreService.updateClusterStateRepositoriesMetadata(new RemoteStoreNode(node), newState.build())
+                        );
                     }
                 } catch (IllegalArgumentException | IllegalStateException | NodeDecommissionedException e) {
                     results.failure(joinTask, e);
@@ -537,6 +550,7 @@ public class JoinTaskExecutor implements ClusterStateTaskExecutor<JoinTaskExecut
             ensureNodesCompatibility(node, state.getNodes(), state.metadata());
             ensureIndexCompatibility(node.getVersion(), state.getMetadata());
             ensureNodeCommissioned(node, state.getMetadata());
+            ensureRemoteStoreNodesCompatibility(node, state);
         });
         validators.addAll(onJoinValidators);
         return Collections.unmodifiableCollection(validators);

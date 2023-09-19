@@ -151,31 +151,31 @@ public class SimpleQueryStringIT extends ParameterizedOpenSearchIntegTestCase {
             client().prepareIndex("test").setId("6").setSource("otherbody", "spaghetti")
         );
 
-        SearchResponse searchResponse = client().prepareSearch().setQuery(simpleQueryStringQuery("foo bar")).get();
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary").setQuery(simpleQueryStringQuery("foo bar")).get();
         assertHitCount(searchResponse, 3L);
         assertSearchHits(searchResponse, "1", "2", "3");
 
         // Tests boost value setting. In this case doc 1 should always be ranked above the other
         // two matches.
-        searchResponse = client().prepareSearch()
+        searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(boolQuery().should(simpleQueryStringQuery("\"foo bar\"").boost(10.0f)).should(termQuery("body", "eggplant")))
             .get();
         assertHitCount(searchResponse, 2L);
         assertFirstHit(searchResponse, hasId("3"));
 
-        searchResponse = client().prepareSearch().setQuery(simpleQueryStringQuery("foo bar").defaultOperator(Operator.AND)).get();
+        searchResponse = client().prepareSearch().setPreference("_primary").setQuery(simpleQueryStringQuery("foo bar").defaultOperator(Operator.AND)).get();
         assertHitCount(searchResponse, 1L);
         assertFirstHit(searchResponse, hasId("3"));
 
-        searchResponse = client().prepareSearch().setQuery(simpleQueryStringQuery("\"quux baz\" +(eggplant | spaghetti)")).get();
+        searchResponse = client().prepareSearch().setPreference("_primary").setQuery(simpleQueryStringQuery("\"quux baz\" +(eggplant | spaghetti)")).get();
         assertHitCount(searchResponse, 2L);
         assertSearchHits(searchResponse, "4", "5");
 
-        searchResponse = client().prepareSearch().setQuery(simpleQueryStringQuery("eggplants").analyzer("mock_snowball")).get();
+        searchResponse = client().prepareSearch().setPreference("_primary").setQuery(simpleQueryStringQuery("eggplants").analyzer("mock_snowball")).get();
         assertHitCount(searchResponse, 1L);
         assertFirstHit(searchResponse, hasId("4"));
 
-        searchResponse = client().prepareSearch()
+        searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(simpleQueryStringQuery("spaghetti").field("body", 1000.0f).field("otherbody", 2.0f).queryName("myquery"))
             .get();
         assertHitCount(searchResponse, 2L);
@@ -183,7 +183,7 @@ public class SimpleQueryStringIT extends ParameterizedOpenSearchIntegTestCase {
         assertSearchHits(searchResponse, "5", "6");
         assertThat(searchResponse.getHits().getAt(0).getMatchedQueries()[0], equalTo("myquery"));
 
-        searchResponse = client().prepareSearch().setQuery(simpleQueryStringQuery("spaghetti").field("*body")).get();
+        searchResponse = client().prepareSearch().setPreference("_primary").setQuery(simpleQueryStringQuery("spaghetti").field("*body")).get();
         assertHitCount(searchResponse, 2L);
         assertSearchHits(searchResponse, "5", "6");
     }
@@ -201,12 +201,12 @@ public class SimpleQueryStringIT extends ParameterizedOpenSearchIntegTestCase {
         );
 
         logger.info("--> query 1");
-        SearchResponse searchResponse = client().prepareSearch().setQuery(simpleQueryStringQuery("foo bar").minimumShouldMatch("2")).get();
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary").setQuery(simpleQueryStringQuery("foo bar").minimumShouldMatch("2")).get();
         assertHitCount(searchResponse, 2L);
         assertSearchHits(searchResponse, "3", "4");
 
         logger.info("--> query 2");
-        searchResponse = client().prepareSearch()
+        searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(simpleQueryStringQuery("foo bar").field("body").field("body2").minimumShouldMatch("2"))
             .get();
         assertHitCount(searchResponse, 2L);
@@ -214,14 +214,14 @@ public class SimpleQueryStringIT extends ParameterizedOpenSearchIntegTestCase {
 
         // test case from #13884
         logger.info("--> query 3");
-        searchResponse = client().prepareSearch()
+        searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(simpleQueryStringQuery("foo").field("body").field("body2").field("body3").minimumShouldMatch("-50%"))
             .get();
         assertHitCount(searchResponse, 3L);
         assertSearchHits(searchResponse, "1", "3", "4");
 
         logger.info("--> query 4");
-        searchResponse = client().prepareSearch()
+        searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(simpleQueryStringQuery("foo bar baz").field("body").field("body2").minimumShouldMatch("70%"))
             .get();
         assertHitCount(searchResponse, 2L);
@@ -237,19 +237,19 @@ public class SimpleQueryStringIT extends ParameterizedOpenSearchIntegTestCase {
         );
 
         logger.info("--> query 5");
-        searchResponse = client().prepareSearch()
+        searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(simpleQueryStringQuery("foo bar").field("body").field("body2").minimumShouldMatch("2"))
             .get();
         assertHitCount(searchResponse, 4L);
         assertSearchHits(searchResponse, "3", "4", "7", "8");
 
         logger.info("--> query 6");
-        searchResponse = client().prepareSearch().setQuery(simpleQueryStringQuery("foo bar").minimumShouldMatch("2")).get();
+        searchResponse = client().prepareSearch().setPreference("_primary").setQuery(simpleQueryStringQuery("foo bar").minimumShouldMatch("2")).get();
         assertHitCount(searchResponse, 5L);
         assertSearchHits(searchResponse, "3", "4", "6", "7", "8");
 
         logger.info("--> query 7");
-        searchResponse = client().prepareSearch()
+        searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(simpleQueryStringQuery("foo bar baz").field("body2").field("other").minimumShouldMatch("70%"))
             .get();
         assertHitCount(searchResponse, 3L);
@@ -276,19 +276,19 @@ public class SimpleQueryStringIT extends ParameterizedOpenSearchIntegTestCase {
         client().prepareIndex("test").setId("1").setSource("body", "foo bar baz").get();
         refresh();
 
-        SearchResponse searchResponse = client().prepareSearch().setQuery(simpleQueryStringQuery("foo bar baz").field("body")).get();
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary").setQuery(simpleQueryStringQuery("foo bar baz").field("body")).get();
         assertHitCount(searchResponse, 1L);
         assertSearchHits(searchResponse, "1");
 
-        searchResponse = client().prepareSearch().setQuery(simpleQueryStringQuery("foo bar baz").field("body")).get();
+        searchResponse = client().prepareSearch().setPreference("_primary").setQuery(simpleQueryStringQuery("foo bar baz").field("body")).get();
         assertHitCount(searchResponse, 1L);
         assertSearchHits(searchResponse, "1");
 
-        searchResponse = client().prepareSearch().setQuery(simpleQueryStringQuery("foo bar baz").field("body.sub")).get();
+        searchResponse = client().prepareSearch().setPreference("_primary").setQuery(simpleQueryStringQuery("foo bar baz").field("body.sub")).get();
         assertHitCount(searchResponse, 1L);
         assertSearchHits(searchResponse, "1");
 
-        searchResponse = client().prepareSearch().setQuery(simpleQueryStringQuery("foo bar baz").field("body.sub")).get();
+        searchResponse = client().prepareSearch().setPreference("_primary").setQuery(simpleQueryStringQuery("foo bar baz").field("body.sub")).get();
         assertHitCount(searchResponse, 1L);
         assertSearchHits(searchResponse, "1");
     }
@@ -305,30 +305,30 @@ public class SimpleQueryStringIT extends ParameterizedOpenSearchIntegTestCase {
             client().prepareIndex("test").setId("6").setSource("otherbody", "spaghetti")
         );
 
-        SearchResponse searchResponse = client().prepareSearch()
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(simpleQueryStringQuery("foo bar").flags(SimpleQueryStringFlag.ALL))
             .get();
         assertHitCount(searchResponse, 3L);
         assertSearchHits(searchResponse, "1", "2", "3");
 
-        searchResponse = client().prepareSearch()
+        searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(simpleQueryStringQuery("foo | bar").defaultOperator(Operator.AND).flags(SimpleQueryStringFlag.OR))
             .get();
         assertHitCount(searchResponse, 3L);
         assertSearchHits(searchResponse, "1", "2", "3");
 
-        searchResponse = client().prepareSearch()
+        searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(simpleQueryStringQuery("foo | bar").defaultOperator(Operator.AND).flags(SimpleQueryStringFlag.NONE))
             .get();
         assertHitCount(searchResponse, 1L);
         assertFirstHit(searchResponse, hasId("3"));
 
-        searchResponse = client().prepareSearch()
+        searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(simpleQueryStringQuery("baz | egg*").defaultOperator(Operator.AND).flags(SimpleQueryStringFlag.NONE))
             .get();
         assertHitCount(searchResponse, 0L);
 
-        searchResponse = client().prepareSearch()
+        searchResponse = client().prepareSearch().setPreference("_primary")
             .setSource(
                 new SearchSourceBuilder().query(
                     QueryBuilders.simpleQueryStringQuery("foo|bar").defaultOperator(Operator.AND).flags(SimpleQueryStringFlag.NONE)
@@ -337,7 +337,7 @@ public class SimpleQueryStringIT extends ParameterizedOpenSearchIntegTestCase {
             .get();
         assertHitCount(searchResponse, 1L);
 
-        searchResponse = client().prepareSearch()
+        searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(
                 simpleQueryStringQuery("quuz~1 + egg*").flags(
                     SimpleQueryStringFlag.WHITESPACE,
@@ -360,7 +360,7 @@ public class SimpleQueryStringIT extends ParameterizedOpenSearchIntegTestCase {
         );
         refresh();
 
-        SearchResponse searchResponse = client().prepareSearch()
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
             .setAllowPartialSearchResults(true)
             .setQuery(simpleQueryStringQuery("foo").field("field"))
             .get();
@@ -368,7 +368,7 @@ public class SimpleQueryStringIT extends ParameterizedOpenSearchIntegTestCase {
         assertHitCount(searchResponse, 1L);
         assertSearchHits(searchResponse, "1");
 
-        searchResponse = client().prepareSearch().setQuery(simpleQueryStringQuery("foo").field("field").lenient(true)).get();
+        searchResponse = client().prepareSearch().setPreference("_primary").setQuery(simpleQueryStringQuery("foo").field("field").lenient(true)).get();
         assertNoFailures(searchResponse);
         assertHitCount(searchResponse, 1L);
         assertSearchHits(searchResponse, "1");
@@ -408,7 +408,7 @@ public class SimpleQueryStringIT extends ParameterizedOpenSearchIntegTestCase {
         indexRandom(true, client().prepareIndex("test1").setId("1").setSource("location", "Köln"));
         refresh();
 
-        SearchResponse searchResponse = client().prepareSearch().setQuery(simpleQueryStringQuery("Köln*").field("location")).get();
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary").setQuery(simpleQueryStringQuery("Köln*").field("location")).get();
         assertNoFailures(searchResponse);
         assertHitCount(searchResponse, 1L);
         assertSearchHits(searchResponse, "1");
@@ -420,7 +420,7 @@ public class SimpleQueryStringIT extends ParameterizedOpenSearchIntegTestCase {
 
         refresh();
 
-        SearchResponse searchResponse = client().prepareSearch().setQuery(simpleQueryStringQuery("123").field("foo").field("bar")).get();
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary").setQuery(simpleQueryStringQuery("123").field("foo").field("bar")).get();
         assertHitCount(searchResponse, 1L);
         assertSearchHits(searchResponse, "1");
     }
@@ -431,7 +431,7 @@ public class SimpleQueryStringIT extends ParameterizedOpenSearchIntegTestCase {
 
         refresh();
 
-        SearchResponse searchResponse = client().prepareSearch().setQuery(simpleQueryStringQuery("test").field("_index")).get();
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary").setQuery(simpleQueryStringQuery("test").field("_index")).get();
         assertHitCount(searchResponse, 2L);
         assertSearchHits(searchResponse, "1", "2");
     }
@@ -454,7 +454,7 @@ public class SimpleQueryStringIT extends ParameterizedOpenSearchIntegTestCase {
         indexRandom(true, client().prepareIndex("test1").setId("1").setSource("body", "Some Text"));
         refresh();
 
-        SearchResponse searchResponse = client().prepareSearch().setQuery(simpleQueryStringQuery("the*").field("body")).get();
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary").setQuery(simpleQueryStringQuery("the*").field("body")).get();
         assertNoFailures(searchResponse);
         assertHitCount(searchResponse, 0L);
     }

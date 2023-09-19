@@ -34,6 +34,7 @@ package org.opensearch.search.profile.aggregation;
 
 import com.carrotsearch.randomizedtesting.annotations.ParametersFactory;
 
+import org.junit.Before;
 import org.opensearch.action.index.IndexRequestBuilder;
 import org.opensearch.action.search.SearchResponse;
 import org.opensearch.common.settings.Settings;
@@ -188,8 +189,9 @@ public class AggregationProfilerIT extends ParameterizedOpenSearchIntegTestCase 
         return 1;
     }
 
-    @Override
-    protected void setupSuiteScopeCluster() throws Exception {
+
+    @Before
+    public void setUpTest() throws Exception {
         assertAcked(
             client().admin()
                 .indices()
@@ -222,7 +224,7 @@ public class AggregationProfilerIT extends ParameterizedOpenSearchIntegTestCase 
         createIndex("idx_unmapped");
     }
 
-    public void testSimpleProfile() {
+    public void testSimpleProfile()  {
         SearchResponse response = client().prepareSearch("idx")
             .setProfile(true)
             .addAggregation(histogram("histo").field(NUMBER_FIELD).interval(1L))
@@ -270,6 +272,7 @@ public class AggregationProfilerIT extends ParameterizedOpenSearchIntegTestCase 
     }
 
     public void testMultiLevelProfile() {
+
         SearchResponse response = client().prepareSearch("idx")
             .setProfile(true)
             .addAggregation(

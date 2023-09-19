@@ -34,6 +34,7 @@ package org.opensearch.search.geo;
 
 import com.carrotsearch.randomizedtesting.annotations.ParametersFactory;
 
+import org.junit.Before;
 import org.opensearch.Version;
 import org.opensearch.action.search.SearchResponse;
 import org.opensearch.cluster.metadata.IndexMetadata;
@@ -50,14 +51,14 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
+import static org.hamcrest.Matchers.anyOf;
+import static org.hamcrest.Matchers.equalTo;
 import static org.opensearch.common.xcontent.XContentFactory.jsonBuilder;
 import static org.opensearch.index.query.QueryBuilders.boolQuery;
 import static org.opensearch.index.query.QueryBuilders.geoPolygonQuery;
 import static org.opensearch.search.SearchService.CLUSTER_CONCURRENT_SEGMENT_SEARCH_SETTING;
 import static org.opensearch.test.hamcrest.OpenSearchAssertions.assertAcked;
 import static org.opensearch.test.hamcrest.OpenSearchAssertions.assertHitCount;
-import static org.hamcrest.Matchers.anyOf;
-import static org.hamcrest.Matchers.equalTo;
 
 @OpenSearchIntegTestCase.SuiteScopeTestCase
 public class GeoPolygonIT extends ParameterizedOpenSearchIntegTestCase {
@@ -84,8 +85,8 @@ public class GeoPolygonIT extends ParameterizedOpenSearchIntegTestCase {
         return false;
     }
 
-    @Override
-    protected void setupSuiteScopeCluster() throws Exception {
+    @Before
+    public void setUpTest() throws Exception {
         Version version = VersionUtils.randomIndexCompatibleVersion(random());
         Settings settings = Settings.builder().put(IndexMetadata.SETTING_VERSION_CREATED, version).build();
 

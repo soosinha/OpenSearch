@@ -25,6 +25,10 @@ public class RemoteIndexPrimaryRelocationIT extends IndexPrimaryRelocationIT {
 
     protected Path absolutePath;
 
+    public void setup() {
+        absolutePath = randomRepoPath().toAbsolutePath();
+    }
+
     protected Settings nodeSettings(int nodeOrdinal) {
         if (absolutePath == null) {
             absolutePath = randomRepoPath().toAbsolutePath();

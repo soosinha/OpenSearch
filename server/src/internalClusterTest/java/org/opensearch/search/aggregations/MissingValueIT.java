@@ -34,6 +34,7 @@ package org.opensearch.search.aggregations;
 
 import com.carrotsearch.randomizedtesting.annotations.ParametersFactory;
 
+import org.junit.Before;
 import org.opensearch.action.search.SearchResponse;
 import org.opensearch.common.geo.GeoPoint;
 import org.opensearch.common.settings.Settings;
@@ -89,8 +90,8 @@ public class MissingValueIT extends ParameterizedOpenSearchIntegTestCase {
         return 2;
     }
 
-    @Override
-    protected void setupSuiteScopeCluster() throws Exception {
+    @Before
+    protected void setupTest() throws Exception {
         assertAcked(prepareCreate("idx").setMapping("date", "type=date", "location", "type=geo_point", "str", "type=keyword").get());
         indexRandom(
             true,

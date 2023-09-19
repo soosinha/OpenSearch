@@ -120,7 +120,7 @@ public class FetchSubPhasePluginIT extends ParameterizedOpenSearchIntegTestCase 
 
         client().admin().indices().prepareRefresh().get();
 
-        SearchResponse response = client().prepareSearch()
+        SearchResponse response = client().prepareSearch().setPreference("_primary")
             .setSource(new SearchSourceBuilder().ext(Collections.singletonList(new TermVectorsFetchBuilder("test"))))
             .get();
         assertSearchResponse(response);

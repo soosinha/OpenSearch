@@ -91,7 +91,7 @@ public class RemoteIndexSnapshotStatusApiIT extends AbstractSnapshotIntegTestCas
 
         final String snapshot = "snapshot";
         createFullSnapshot(snapshotRepoName, snapshot);
-        assert (getLockFilesInRemoteStore(remoteStoreEnabledIndexName, remoteStoreRepoName).length == 1);
+        assert (getLockFilesInRemoteStore(remoteStoreEnabledIndexName, REPOSITORY_NAME).length == 1);
 
         final SnapshotStatus snapshotStatus = getSnapshotStatus(snapshotRepoName, snapshot);
         assertThat(snapshotStatus.getState(), is(SnapshotsInProgress.State.SUCCESS));
@@ -125,7 +125,7 @@ public class RemoteIndexSnapshotStatusApiIT extends AbstractSnapshotIntegTestCas
         refresh();
 
         createFullSnapshot(snapshotRepoName, "test-snap-1");
-        assert (getLockFilesInRemoteStore(remoteStoreEnabledIndexName, remoteStoreRepoName).length == 1);
+        assert (getLockFilesInRemoteStore(remoteStoreEnabledIndexName, REPOSITORY_NAME).length == 1);
 
         SnapshotStatus snapshotStatus = getSnapshotStatus(snapshotRepoName, "test-snap-1");
         assertThat(snapshotStatus.getState(), is(SnapshotsInProgress.State.SUCCESS));
@@ -138,7 +138,7 @@ public class RemoteIndexSnapshotStatusApiIT extends AbstractSnapshotIntegTestCas
         final long incrementalSize = shallowSnapshotShardState.getStats().getIncrementalSize();
 
         createFullSnapshot(snapshotRepoName, "test-snap-2");
-        assert (getLockFilesInRemoteStore(remoteStoreEnabledIndexName, remoteStoreRepoName).length == 2);
+        assert (getLockFilesInRemoteStore(remoteStoreEnabledIndexName, REPOSITORY_NAME).length == 2);
 
         snapshotStatus = getSnapshotStatus(snapshotRepoName, "test-snap-2");
         assertThat(snapshotStatus.getState(), is(SnapshotsInProgress.State.SUCCESS));

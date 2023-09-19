@@ -84,7 +84,7 @@ public class SearchRedStateIndexIT extends ParameterizedOpenSearchIntegTestCase 
         final int numShards = cluster().numDataNodes() + 2;
         buildRedIndex(numShards);
 
-        SearchResponse searchResponse = client().prepareSearch().setSize(0).setAllowPartialSearchResults(true).get();
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary").setSize(0).setAllowPartialSearchResults(true).get();
         assertThat(RestStatus.OK, equalTo(searchResponse.status()));
         assertThat("Expect no shards failed", searchResponse.getFailedShards(), equalTo(0));
         assertThat("Expect no shards skipped", searchResponse.getSkippedShards(), equalTo(0));
@@ -98,7 +98,7 @@ public class SearchRedStateIndexIT extends ParameterizedOpenSearchIntegTestCase 
 
         setClusterDefaultAllowPartialResults(true);
 
-        SearchResponse searchResponse = client().prepareSearch().setSize(0).get();
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary").setSize(0).get();
         assertThat(RestStatus.OK, equalTo(searchResponse.status()));
         assertThat("Expect no shards failed", searchResponse.getFailedShards(), equalTo(0));
         assertThat("Expect no shards skipped", searchResponse.getSkippedShards(), equalTo(0));
@@ -111,7 +111,7 @@ public class SearchRedStateIndexIT extends ParameterizedOpenSearchIntegTestCase 
 
         SearchPhaseExecutionException ex = expectThrows(
             SearchPhaseExecutionException.class,
-            () -> client().prepareSearch().setSize(0).setAllowPartialSearchResults(false).get()
+            () -> client().prepareSearch().setPreference("_primary").setSize(0).setAllowPartialSearchResults(false).get()
         );
         assertThat(ex.getDetailedMessage(), containsString("Search rejected due to missing shard"));
     }
@@ -122,7 +122,7 @@ public class SearchRedStateIndexIT extends ParameterizedOpenSearchIntegTestCase 
         setClusterDefaultAllowPartialResults(false);
         SearchPhaseExecutionException ex = expectThrows(
             SearchPhaseExecutionException.class,
-            () -> client().prepareSearch().setSize(0).get()
+            () -> client().prepareSearch().setPreference("_primary").setSize(0).get()
         );
         assertThat(ex.getDetailedMessage(), containsString("Search rejected due to missing shard"));
     }

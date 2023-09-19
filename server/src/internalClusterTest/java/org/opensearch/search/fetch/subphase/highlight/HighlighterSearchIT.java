@@ -179,7 +179,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         refresh();
 
         for (BoundaryScannerType scanner : BoundaryScannerType.values()) {
-            SearchResponse search = client().prepareSearch()
+            SearchResponse search = client().prepareSearch().setPreference("_primary")
                 .addSort(SortBuilders.fieldSort("sort"))
                 .setQuery(matchQuery("tags", "foo bar"))
                 .highlighter(new HighlightBuilder().field(new Field("tags")).numOfFragments(2).boundaryScannerType(scanner))
@@ -198,7 +198,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         assertAcked(prepareCreate("test").setMapping(mappings));
         client().prepareIndex("test").setId("1").setSource(jsonBuilder().startObject().field("text", "foo").endObject()).get();
         refresh();
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("text", "foo"))
             .highlighter(new HighlightBuilder().field(new Field("text")))
             .get();
@@ -222,7 +222,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         client().prepareIndex("test").setId("1").setSource(jsonBuilder().startObject().field("text", "text").endObject()).get();
         refresh();
         for (String type : ALL_TYPES) {
-            SearchResponse search = client().prepareSearch()
+            SearchResponse search = client().prepareSearch().setPreference("_primary")
                 .setQuery(constantScoreQuery(matchQuery("text", "text")))
                 .highlighter(new HighlightBuilder().field(new Field("*").highlighterType(type)))
                 .get();
@@ -252,7 +252,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         for (String type : ALL_TYPES) {
             HighlightBuilder builder = new HighlightBuilder().field(new Field("alias").highlighterType(type))
                 .requireFieldMatch(randomBoolean());
-            SearchResponse search = client().prepareSearch().setQuery(matchQuery("alias", "foo")).highlighter(builder).get();
+            SearchResponse search = client().prepareSearch().setPreference("_primary").setQuery(matchQuery("alias", "foo")).highlighter(builder).get();
             assertHighlight(search, 0, "alias", 0, equalTo("<em>foo</em>"));
         }
     }
@@ -280,7 +280,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         for (String type : ALL_TYPES) {
             HighlightBuilder builder = new HighlightBuilder().field(new Field("alias").highlighterType(type))
                 .requireFieldMatch(randomBoolean());
-            SearchResponse search = client().prepareSearch().setQuery(matchQuery("alias", "bar")).highlighter(builder).get();
+            SearchResponse search = client().prepareSearch().setPreference("_primary").setQuery(matchQuery("alias", "bar")).highlighter(builder).get();
             assertHighlight(search, 0, "alias", 0, equalTo("foo <em>bar</em>"));
         }
     }
@@ -303,7 +303,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         refresh();
 
         HighlightBuilder builder = new HighlightBuilder().field(new Field("al*")).requireFieldMatch(false);
-        SearchResponse search = client().prepareSearch().setQuery(matchQuery("alias", "foo")).highlighter(builder).get();
+        SearchResponse search = client().prepareSearch().setPreference("_primary").setQuery(matchQuery("alias", "foo")).highlighter(builder).get();
         assertHighlight(search, 0, "alias", 0, equalTo("<em>foo</em>"));
     }
 
@@ -335,12 +335,12 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
             .get();
         refresh();
         for (String type : ALL_TYPES) {
-            SearchResponse search = client().prepareSearch()
+            SearchResponse search = client().prepareSearch().setPreference("_primary")
                 .setQuery(constantScoreQuery(matchQuery("text", "text")))
                 .highlighter(new HighlightBuilder().field(new Field("*").highlighterType(type)))
                 .get();
             assertHighlight(search, 0, "text", 0, equalTo("<em>text</em>"));
-            search = client().prepareSearch()
+            search = client().prepareSearch().setPreference("_primary")
                 .setQuery(constantScoreQuery(matchQuery("text", "text")))
                 .highlighter(new HighlightBuilder().field(new Field("unstored_text")))
                 .get();
@@ -358,7 +358,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         }
         client().prepareIndex("test").setId("1").setSource("name", builder.toString()).get();
         refresh();
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setQuery(constantScoreQuery(matchQuery("name", "abc")))
             .highlighter(new HighlightBuilder().field("name"))
             .get();
@@ -385,19 +385,19 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
             )
             .get();
         refresh();
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("long_term", "thisisaverylongwordandmakessurethisfails foo highlighed"))
             .highlighter(new HighlightBuilder().field("long_term", 18, 1).highlighterType("fvh"))
             .get();
         assertHighlight(search, 0, "long_term", 0, 1, equalTo("<em>thisisaverylongwordandmakessurethisfails</em>"));
 
-        search = client().prepareSearch()
+        search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchPhraseQuery("no_long_term", "test foo highlighed").slop(3))
             .highlighter(new HighlightBuilder().field("no_long_term", 18, 1).highlighterType("fvh").postTags("</b>").preTags("<b>"))
             .get();
         assertNotHighlighted(search, 0, "no_long_term");
 
-        search = client().prepareSearch()
+        search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchPhraseQuery("no_long_term", "test foo highlighed").slop(3))
             .highlighter(new HighlightBuilder().field("no_long_term", 30, 1).highlighterType("fvh").postTags("</b>").preTags("<b>"))
             .get();
@@ -451,7 +451,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         }
         indexRandom(true, indexRequestBuilders);
 
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title", "bug"))
             .highlighter(new HighlightBuilder().field("title", -1, 0))
             .get();
@@ -460,7 +460,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
             assertHighlight(search, i, "title", 0, equalTo("This is a test on the highlighting <em>bug</em> present in opensearch"));
         }
 
-        search = client().prepareSearch()
+        search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("attachments.body", "attachment"))
             .highlighter(new HighlightBuilder().field("attachments.body", -1, 0))
             .get();
@@ -518,7 +518,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         }
         indexRandom(true, indexRequestBuilders);
 
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title", "bug"))
             .highlighter(new HighlightBuilder().field("title", -1, 0))
             .get();
@@ -527,7 +527,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
             assertHighlight(search, i, "title", 0, equalTo("This is a test on the highlighting <em>bug</em> present in opensearch"));
         }
 
-        search = client().prepareSearch()
+        search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("attachments.body", "attachment"))
             .highlighter(new HighlightBuilder().field("attachments.body", -1, 2))
             .execute()
@@ -589,7 +589,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         }
         indexRandom(true, indexRequestBuilders);
 
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title", "bug"))
             // asking for the whole field to be highlighted
             .highlighter(new HighlightBuilder().field("title", -1, 0))
@@ -606,7 +606,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
             assertHighlight(search, i, "title", 1, 2, equalTo("This is the second <em>bug</em> to perform highlighting on."));
         }
 
-        search = client().prepareSearch()
+        search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title", "bug"))
             // sentences will be generated out of each value
             .highlighter(new HighlightBuilder().field("title"))
@@ -623,7 +623,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
             assertHighlight(search, i, "title", 1, 2, equalTo("This is the second <em>bug</em> to perform highlighting on."));
         }
 
-        search = client().prepareSearch()
+        search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("attachments.body", "attachment"))
             .highlighter(new HighlightBuilder().field("attachments.body", -1, 2))
             .get();
@@ -652,7 +652,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
             client().prepareIndex("test").setId("2").setSource("titleTV", new String[] { "some text to highlight", "highlight other text" })
         );
 
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title", "bug"))
             .highlighter(new HighlightBuilder().field("title", -1, 2).field("titleTV", -1, 2).requireFieldMatch(false))
             .get();
@@ -662,7 +662,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         assertHighlight(search, 0, "titleTV", 0, equalTo("This is a test on the highlighting <em>bug</em> present in opensearch"));
         assertHighlight(search, 0, "titleTV", 1, 2, equalTo("The <em>bug</em> is bugging us"));
 
-        search = client().prepareSearch()
+        search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("titleTV", "highlight"))
             .highlighter(new HighlightBuilder().field("titleTV", -1, 2))
             .get();
@@ -1262,7 +1262,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         indexRandom(true, indexRequestBuilders);
 
         logger.info("--> searching explicitly on field1 and highlighting on it");
-        SearchResponse searchResponse = client().prepareSearch()
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
             .setSize(COUNT)
             .setQuery(termQuery("field1", "test"))
             .highlighter(new HighlightBuilder().field("field1", 100, 0))
@@ -1301,7 +1301,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         }
         indexRandom(true, indexRequestBuilders);
 
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title", "bug"))
             .highlighter(new HighlightBuilder().field("title", -1, 0))
             .get();
@@ -1329,7 +1329,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         }
         indexRandom(true, indexRequestBuilders);
 
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title", "bug"))
             .highlighter(new HighlightBuilder().field("title", 30, 1, 10).highlighterType("fvh"))
             .get();
@@ -1351,7 +1351,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         }
         indexRandom(true, indexRequestBuilders);
 
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title", "test"))
             .highlighter(new HighlightBuilder().encoder("html").field("title", 50, 1, 10))
             .get();
@@ -1372,7 +1372,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         }
         indexRandom(true, indexRequestBuilders);
 
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title", "test"))
             .highlighter(new HighlightBuilder().encoder("html").field("title", 30, 1, 10).highlighterType("plain"))
             .get();
@@ -1410,7 +1410,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         refresh();
 
         // simple search on body with standard analyzer with a simple field query
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title", "this is a test"))
             .highlighter(new HighlightBuilder().encoder("html").field("title", 50, 1))
             .get();
@@ -1418,7 +1418,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         assertHighlight(search, 0, "title", 0, 1, equalTo("this is a <em>test</em>"));
 
         // search on title.key and highlight on title
-        search = client().prepareSearch()
+        search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title.key", "this is a test"))
             .highlighter(new HighlightBuilder().encoder("html").field("title.key", 50, 1))
             .get();
@@ -1455,7 +1455,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         refresh();
 
         // simple search on body with standard analyzer with a simple field query
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title", "this is a test"))
             .highlighter(new HighlightBuilder().encoder("html").field("title", 50, 1))
             .get();
@@ -1463,7 +1463,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         assertHighlight(search, 0, "title", 0, 1, equalTo("this is a <em>test</em>"));
 
         // search on title.key and highlight on title.key
-        search = client().prepareSearch()
+        search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title.key", "this is a test"))
             .highlighter(new HighlightBuilder().encoder("html").field("title.key", 50, 1))
             .get();
@@ -1500,7 +1500,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         refresh();
 
         // simple search on body with standard analyzer with a simple field query
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title", "this is a test"))
             .highlighter(new HighlightBuilder().encoder("html").field("title", 50, 1))
             .get();
@@ -1508,7 +1508,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         assertHighlight(search, 0, "title", 0, 1, equalTo("this is a <em>test</em>"));
 
         // search on title.key and highlight on title
-        search = client().prepareSearch()
+        search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title.key", "this is a test"))
             .highlighter(new HighlightBuilder().encoder("html").field("title.key", 50, 1))
             .get();
@@ -1544,7 +1544,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         refresh();
 
         // simple search on body with standard analyzer with a simple field query
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title", "this is a test"))
             .highlighter(new HighlightBuilder().encoder("html").field("title", 50, 1))
             .get();
@@ -1552,7 +1552,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         assertHighlight(search, 0, "title", 0, 1, equalTo("this is a <em>test</em>"));
 
         // search on title.key and highlight on title.key
-        search = client().prepareSearch()
+        search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title.key", "this is a test"))
             .highlighter(new HighlightBuilder().encoder("html").field("title.key", 50, 1))
             .get();
@@ -1572,14 +1572,14 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         }
         indexRandom(true, indexRequestBuilders);
 
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchPhraseQuery("title", "this is a test"))
             .highlighter(new HighlightBuilder().field("title", 50, 1, 10))
             .get();
         assertNoFailures(search);
 
         assertFailures(
-            client().prepareSearch()
+            client().prepareSearch().setPreference("_primary")
                 .setQuery(matchPhraseQuery("title", "this is a test"))
                 .highlighter(new HighlightBuilder().field("title", 50, 1, 10).highlighterType("fvh")),
             RestStatus.BAD_REQUEST,
@@ -1590,7 +1590,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
 
         // should not fail if there is a wildcard
         assertNoFailures(
-            client().prepareSearch()
+            client().prepareSearch().setPreference("_primary")
                 .setQuery(matchPhraseQuery("title", "this is a test"))
                 .highlighter(new HighlightBuilder().field("tit*", 50, 1, 10).highlighterType("fvh"))
                 .get()
@@ -1609,7 +1609,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         }
         indexRandom(true, indexRequestBuilders);
 
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchPhraseQuery("title", "test for the workaround"))
             .highlighter(new HighlightBuilder().field("title", 50, 1, 10).highlighterType("fvh"))
             .get();
@@ -1620,7 +1620,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         }
 
         // Using plain highlighter instead of FVH
-        search = client().prepareSearch()
+        search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchPhraseQuery("title", "test for the workaround"))
             .highlighter(new HighlightBuilder().field("title", 50, 1, 10).highlighterType("plain"))
             .get();
@@ -1637,7 +1637,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         }
 
         // Using plain highlighter instead of FVH on the field level
-        search = client().prepareSearch()
+        search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchPhraseQuery("title", "test for the workaround"))
             .highlighter(
                 new HighlightBuilder().field(new HighlightBuilder.Field("title").highlighterType("plain")).highlighterType("plain")
@@ -2522,7 +2522,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         }
         indexRandom(true, indexRequestBuilders);
 
-        SearchResponse searchResponse = client().prepareSearch()
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title", "test"))
             .highlighter(new HighlightBuilder().field("title").encoder("html"))
             .get();
@@ -2567,7 +2567,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         refresh();
 
         // simple search on body with standard analyzer with a simple field query
-        SearchResponse searchResponse = client().prepareSearch()
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
             // lets make sure we analyze the query and we highlight the resulting terms
             .setQuery(matchQuery("title", "This is a Test"))
             .highlighter(new HighlightBuilder().field("title"))
@@ -2579,7 +2579,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         assertHighlight(hit, "title", 0, 1, equalTo("this is a <em>test</em> . Second sentence."));
 
         // search on title.key and highlight on title
-        searchResponse = client().prepareSearch()
+        searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title.key", "this is a test"))
             .highlighter(new HighlightBuilder().field("title.key"))
             .get();
@@ -2625,7 +2625,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         refresh();
 
         // simple search on body with standard analyzer with a simple field query
-        SearchResponse searchResponse = client().prepareSearch()
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title", "this is a test"))
             .highlighter(new HighlightBuilder().field("title"))
             .get();
@@ -2633,7 +2633,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         assertHighlight(searchResponse, 0, "title", 0, 1, equalTo("this is a <em>test</em>"));
 
         // search on title.key and highlight on title.key
-        searchResponse = client().prepareSearch()
+        searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title.key", "this is a test"))
             .highlighter(new HighlightBuilder().field("title.key"))
             .get();
@@ -2665,7 +2665,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         }
         indexRandom(true, indexRequestBuilders);
 
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("title", "this is a test"))
             .highlighter(new HighlightBuilder().field("title"))
             .get();
@@ -2954,7 +2954,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         indexRandom(true, indexRequestBuilders);
 
         logger.info("--> searching explicitly on field1 and highlighting on it");
-        SearchRequestBuilder searchRequestBuilder = client().prepareSearch()
+        SearchRequestBuilder searchRequestBuilder = client().prepareSearch().setPreference("_primary")
             .setSize(COUNT)
             .setQuery(termQuery("field1", "test"))
             .highlighter(new HighlightBuilder().field("field1"));
@@ -3140,7 +3140,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
                     .setCorners(61.10078883158897, -170.15625, -64.92354174306496, 118.47656249999999)
             )
             .should(QueryBuilders.termQuery("text", "failure"));
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setSource(
                 new SearchSourceBuilder().query(query).highlighter(new HighlightBuilder().field("*").highlighterType(highlighterType))
             )
@@ -3185,7 +3185,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
                         .setCorners(new GeoPoint(48.934059, 41.610741), new GeoPoint(-23.065941, 113.610741))
                 )
         );
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setSource(new SearchSourceBuilder().query(query).highlighter(new HighlightBuilder().highlighterType("plain").field("jd")))
             .get();
         assertNoFailures(search);
@@ -3205,7 +3205,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
             .setSource(jsonBuilder().startObject().field("keyword_field", "some text").endObject())
             .get();
         refresh();
-        SearchResponse search = client().prepareSearch()
+        SearchResponse search = client().prepareSearch().setPreference("_primary")
             .setSource(
                 new SearchSourceBuilder().query(QueryBuilders.matchQuery("keyword_field", "some text"))
                     .highlighter(new HighlightBuilder().field("*"))
@@ -3238,7 +3238,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
             .setRefreshPolicy(WriteRequest.RefreshPolicy.IMMEDIATE)
             .get();
 
-        SearchResponse response = client().prepareSearch()
+        SearchResponse response = client().prepareSearch().setPreference("_primary")
             .setQuery(matchQuery("foo_copy", "brown"))
             .highlighter(new HighlightBuilder().field(new Field("foo_copy")))
             .get();
@@ -3288,7 +3288,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
             .setRefreshPolicy(WriteRequest.RefreshPolicy.IMMEDIATE)
             .get();
 
-        SearchResponse searchResponse = client().prepareSearch()
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(nestedQuery("foo", matchQuery("foo.text", "brown cow"), ScoreMode.None))
             .highlighter(new HighlightBuilder().field(new Field("foo_text").highlighterType("fvh")).requireFieldMatch(false))
             .get();
@@ -3306,7 +3306,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
             .setRefreshPolicy(WriteRequest.RefreshPolicy.IMMEDIATE)
             .get();
 
-        SearchResponse searchResponse = client().prepareSearch()
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(new FunctionScoreQueryBuilder(QueryBuilders.prefixQuery("text", "bro")))
             .highlighter(new HighlightBuilder().field(new Field("text")))
             .get();
@@ -3327,7 +3327,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
             new RandomScoreFunctionBuilder()
         );
 
-        SearchResponse searchResponse = client().prepareSearch()
+        SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
             .setQuery(
                 new FunctionScoreQueryBuilder(
                     QueryBuilders.prefixQuery("text", "bro"),
@@ -3418,7 +3418,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
             .get();
 
         for (String type : new String[] { "unified", "plain" }) {
-            SearchResponse searchResponse = client().prepareSearch()
+            SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
                 .setQuery(nestedQuery("foo", matchQuery("foo.text", "brown cow"), ScoreMode.None))
                 .highlighter(new HighlightBuilder().field(new Field("foo.text").highlighterType(type)))
                 .get();
@@ -3428,7 +3428,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
             assertThat(field.getFragments()[0].string(), equalTo("<em>brown</em>"));
             assertThat(field.getFragments()[1].string(), equalTo("<em>cow</em>"));
 
-            searchResponse = client().prepareSearch()
+            searchResponse = client().prepareSearch().setPreference("_primary")
                 .setQuery(nestedQuery("foo", prefixQuery("foo.text", "bro"), ScoreMode.None))
                 .highlighter(new HighlightBuilder().field(new Field("foo.text").highlighterType(type)))
                 .get();
@@ -3437,7 +3437,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
             assertThat(field.getFragments().length, equalTo(1));
             assertThat(field.getFragments()[0].string(), equalTo("<em>brown</em>"));
 
-            searchResponse = client().prepareSearch()
+            searchResponse = client().prepareSearch().setPreference("_primary")
                 .setQuery(nestedQuery("foo", prefixQuery("foo.text", "bro"), ScoreMode.None))
                 .highlighter(new HighlightBuilder().field(new Field("foo.text").highlighterType("plain")))
                 .get();
@@ -3451,7 +3451,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
         // but we highlight the root text field since nested documents cannot be highlighted with postings nor term vectors
         // directly.
         for (String type : ALL_TYPES) {
-            SearchResponse searchResponse = client().prepareSearch()
+            SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
                 .setQuery(nestedQuery("foo", prefixQuery("foo.text", "bro"), ScoreMode.None))
                 .highlighter(new HighlightBuilder().field(new Field("text").highlighterType(type).requireFieldMatch(false)))
                 .get();
@@ -3475,7 +3475,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
             .get();
 
         for (String highlighterType : new String[] { "unified", "plain" }) {
-            SearchResponse searchResponse = client().prepareSearch()
+            SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
                 .setQuery(matchQuery("keyword", "hello world"))
                 .highlighter(new HighlightBuilder().field(new Field("keyword").highlighterType(highlighterType)))
                 .get();
@@ -3497,7 +3497,7 @@ public class HighlighterSearchIT extends ParameterizedOpenSearchIntegTestCase {
             .get();
 
         for (String highlighterType : new String[] { "plain", "unified" }) {
-            SearchResponse searchResponse = client().prepareSearch()
+            SearchResponse searchResponse = client().prepareSearch().setPreference("_primary")
                 .setQuery(matchQuery("_id", "d33f85bf1e51e84d9ab38948db9f3a068e1fe5294f1d8603914ac8c7bcc39ca1"))
                 .highlighter(new HighlightBuilder().field(new Field("*").highlighterType(highlighterType).requireFieldMatch(false)))
                 .get();

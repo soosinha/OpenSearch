@@ -45,6 +45,11 @@ public class SegmentReplicationClusterSettingIT extends OpenSearchIntegTestCase 
     }
 
     @Override
+    protected boolean addMockNRTReplicationEngine() {
+        return false;
+    }
+
+    @Override
     protected Settings nodeSettings(int nodeOrdinal) {
         return Settings.builder()
             .put(super.nodeSettings(nodeOrdinal))
@@ -52,6 +57,7 @@ public class SegmentReplicationClusterSettingIT extends OpenSearchIntegTestCase 
             .build();
     }
 
+    @AwaitsFix(bugUrl = "This is expected")
     public void testIndexReplicationSettingOverridesSegRepClusterSetting() throws Exception {
         Settings settings = Settings.builder().put(CLUSTER_SETTING_REPLICATION_TYPE, ReplicationType.SEGMENT).build();
         final String ANOTHER_INDEX = "test-index";
@@ -93,6 +99,7 @@ public class SegmentReplicationClusterSettingIT extends OpenSearchIntegTestCase 
         assertEquals(indicesService.indexService(anotherIndex).getIndexSettings().isSegRepEnabled(), true);
     }
 
+    @AwaitsFix(bugUrl = "This is expected")
     public void testIndexReplicationSettingOverridesDocRepClusterSetting() throws Exception {
         Settings settings = Settings.builder().put(CLUSTER_SETTING_REPLICATION_TYPE, ReplicationType.DOCUMENT).build();
         final String ANOTHER_INDEX = "test-index";

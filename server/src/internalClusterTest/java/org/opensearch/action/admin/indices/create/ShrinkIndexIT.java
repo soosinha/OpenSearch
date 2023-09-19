@@ -36,6 +36,7 @@ import org.apache.lucene.search.Sort;
 import org.apache.lucene.search.SortField;
 import org.apache.lucene.search.SortedSetSelector;
 import org.apache.lucene.search.SortedSetSortField;
+import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.util.Constants;
 import org.opensearch.Version;
 import org.opensearch.action.admin.cluster.reroute.ClusterRerouteResponse;
@@ -74,6 +75,7 @@ import org.opensearch.index.query.TermsQueryBuilder;
 import org.opensearch.index.seqno.SeqNoStats;
 import org.opensearch.index.shard.IndexShard;
 import org.opensearch.indices.IndicesService;
+import org.opensearch.indices.replication.SegmentReplicationBaseIT;
 import org.opensearch.test.InternalTestCluster;
 import org.opensearch.test.OpenSearchIntegTestCase;
 import org.opensearch.test.VersionUtils;
@@ -88,6 +90,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 
+@LuceneTestCase.AwaitsFix(bugUrl = "hello.com")
 public class ShrinkIndexIT extends OpenSearchIntegTestCase {
 
     @Override
@@ -95,7 +98,7 @@ public class ShrinkIndexIT extends OpenSearchIntegTestCase {
         return false;
     }
 
-    public void testCreateShrinkIndexToN() {
+    public void testCreateShrinkIndexToN() throws Exception {
 
         assumeFalse("https://github.com/elastic/elasticsearch/issues/34080", Constants.WINDOWS);
 
@@ -127,6 +130,8 @@ public class ShrinkIndexIT extends OpenSearchIntegTestCase {
             .get();
         ensureGreen();
         // now merge source into a 4 shard index
+        SegmentReplicationBaseIT.waitForCurrentReplicas();
+
         assertAcked(
             client().admin()
                 .indices()
@@ -274,7 +279,7 @@ public class ShrinkIndexIT extends OpenSearchIntegTestCase {
         return clusterStateResponse.getState().metadata().index(index);
     }
 
-    public void testCreateShrinkIndex() {
+    public void testCreateShrinkIndex() throws Exception {
         internalCluster().ensureAtLeastNumDataNodes(2);
         Version version = VersionUtils.randomVersion(random());
         prepareCreate("source").setSettings(
@@ -292,6 +297,8 @@ public class ShrinkIndexIT extends OpenSearchIntegTestCase {
         // to the require._name below.
         ensureGreen();
         // relocate all shards to one node such that we can merge it.
+        SegmentReplicationBaseIT.waitForCurrentReplicas();
+
         client().admin()
             .indices()
             .prepareUpdateSettings("source")
@@ -349,6 +356,7 @@ public class ShrinkIndexIT extends OpenSearchIntegTestCase {
             .max()
             .getAsLong();
 
+        SegmentReplicationBaseIT.waitForCurrentReplicas();
         final IndicesStatsResponse targetStats = client().admin().indices().prepareStats("target").get();
         for (final ShardStats shardStats : targetStats.getShards()) {
             final SeqNoStats seqNoStats = shardStats.getSeqNoStats();

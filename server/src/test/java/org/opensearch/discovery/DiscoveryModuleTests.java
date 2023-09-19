@@ -32,6 +32,7 @@
 package org.opensearch.discovery;
 
 import org.opensearch.Version;
+import org.opensearch.action.admin.cluster.remotestore.RemoteStoreNodeService;
 import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.coordination.Coordinator;
 import org.opensearch.cluster.coordination.PersistedStateRegistry;

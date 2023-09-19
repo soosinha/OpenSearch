@@ -46,6 +46,9 @@ public final class MockEngineFactory implements EngineFactory {
 
     @Override
     public Engine newReadWriteEngine(EngineConfig config) {
+        if (config.isReadOnlyReplica()) {
+            return new MockNRTReplicationEngine(config);
+        }
         return new MockInternalEngine(config, wrapper);
     }
 }
