@@ -33,6 +33,7 @@ package org.opensearch.cluster.coordination;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.opensearch.cluster.ClusterChangedEvent;
 import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.coordination.CoordinationMetadata.VotingConfiguration;
 import org.opensearch.cluster.coordination.PersistedStateRegistry.PersistedStateType;
@@ -50,6 +51,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.opensearch.gateway.GatewayMetaState.RemotePersistedState;
 
 import static org.opensearch.cluster.coordination.Coordinator.ZEN1_BWC_TERM;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.isRemoteStoreClusterStateEnabled;
@@ -569,7 +571,7 @@ public class CoordinationState {
      * This method should be called just before sending the PublishRequest to all cluster nodes.
      * @param clusterState The cluster state for which pre publish activities should happen.
      */
-    public void handlePrePublish(ClusterState clusterState) {
+    public void handlePrePublish(ClusterState clusterState, ClusterChangedEvent clusterChangedEvent) {
         // Publishing the current state to remote store before sending the cluster state to other nodes.
         // This is to ensure the remote store is the single source of truth for current state. Even if the current node
         // goes down after sending the cluster state to other nodes, we should be able to read the remote state and
@@ -577,6 +579,7 @@ public class CoordinationState {
         if (isRemoteStateEnabled) {
             assert persistedStateRegistry.getPersistedState(PersistedStateType.REMOTE) != null : "Remote state has not been initialized";
             persistedStateRegistry.getPersistedState(PersistedStateType.REMOTE).setLastAcceptedState(clusterState);
+
         }
     }
 
@@ -601,6 +604,25 @@ public class CoordinationState {
         }
         assert electionWon() == false || startedJoinSinceLastReboot;
         assert publishVotes.isEmpty() || electionWon();
+    }
+
+    public PublishRemoteStateRequest createPublishRemoteStateRequest(DiscoveryNode localNode, long term, long version, String fromUuid, String toUuid) {
+        if (isRemoteStateEnabled == false) {
+            return null;
+        }
+        RemotePersistedState remotePersistedState = (RemotePersistedState) persistedStateRegistry.getPersistedState(PersistedStateType.REMOTE);
+        return new PublishRemoteStateRequest(
+            localNode,
+            term,
+            version,
+            fromUuid,
+            toUuid,
+            "dummy",
+            remotePersistedState.getLastAcceptedManifest().getClusterStateFileName(),
+            remotePersistedState.getLastAcceptedManifest().getClusterStateDiffFileName(),
+            remotePersistedState.getLastAcceptedState().getClusterName().value(),
+            remotePersistedState.getLastAcceptedState().metadata().clusterUUID()
+        );
     }
 
     public void close() throws IOException {

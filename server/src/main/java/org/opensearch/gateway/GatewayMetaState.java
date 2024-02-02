@@ -683,6 +683,10 @@ public class GatewayMetaState implements Closeable {
             return lastAcceptedState;
         }
 
+        public ClusterMetadataManifest getLastAcceptedManifest() {
+            return lastAcceptedManifest;
+        }
+
         @Override
         public void setCurrentTerm(long currentTerm) {
             // no-op

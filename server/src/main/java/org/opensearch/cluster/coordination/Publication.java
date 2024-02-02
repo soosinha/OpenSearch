@@ -43,6 +43,7 @@ import org.opensearch.cluster.node.DiscoveryNode;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.core.transport.TransportResponse;
+import org.opensearch.node.remotestore.RemoteStoreNodeAttribute;
 import org.opensearch.transport.TransportException;
 
 import java.util.ArrayList;
@@ -63,6 +64,7 @@ public abstract class Publication {
 
     private final List<PublicationTarget> publicationTargets;
     private final PublishRequest publishRequest;
+    private PublishRemoteStateRequest publishRemoteStateRequest;
     private final AckListener ackListener;
     private final LongSupplier currentTimeSupplier;
     private final long startTime;
@@ -82,6 +84,10 @@ public abstract class Publication {
             .getNodes()
             .clusterManagersFirstStream()
             .forEach(n -> publicationTargets.add(new PublicationTarget(n)));
+    }
+
+    public void setPublishRemoteStateRequest(PublishRemoteStateRequest publishRemoteStateRequest) {
+        this.publishRemoteStateRequest = publishRemoteStateRequest;
     }
 
     public void start(Set<DiscoveryNode> faultyNodes) {
@@ -211,13 +217,20 @@ public abstract class Publication {
     protected abstract void sendPublishRequest(
         DiscoveryNode destination,
         PublishRequest publishRequest,
-        ActionListener<PublishWithJoinResponse> responseActionListener
+        ActionListener<PublishWithJoinResponse> responseActionListener,
+        PublishRemoteStateRequest publishRemoteStateRequest
     );
 
     protected abstract void sendApplyCommit(
         DiscoveryNode destination,
         ApplyCommitRequest applyCommit,
         ActionListener<TransportResponse.Empty> responseActionListener
+    );
+
+    protected abstract void sendPublishRemoteStateRequest(
+        DiscoveryNode destination,
+        PublishRemoteStateRequest publishRemoteStateRequest,
+        ActionListener<PublishWithJoinResponse> responseActionListener
     );
 
     @Override
@@ -284,7 +297,7 @@ public abstract class Publication {
             }
             assert state == PublicationTargetState.NOT_STARTED : state + " -> " + PublicationTargetState.SENT_PUBLISH_REQUEST;
             state = PublicationTargetState.SENT_PUBLISH_REQUEST;
-            Publication.this.sendPublishRequest(discoveryNode, publishRequest, new PublishResponseHandler());
+            Publication.this.sendPublishRequest(discoveryNode, publishRequest, new PublishResponseHandler(), publishRemoteStateRequest);
             assert publicationCompletedIffAllTargetsInactiveOrCancelled();
         }
 

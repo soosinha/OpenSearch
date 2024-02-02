@@ -47,6 +47,7 @@ import org.opensearch.core.common.bytes.BytesReference;
 import org.opensearch.core.common.io.stream.NamedWriteableRegistry;
 import org.opensearch.core.common.io.stream.StreamInput;
 import org.opensearch.core.transport.TransportResponse;
+import org.opensearch.gateway.remote.RemoteClusterStateService;
 import org.opensearch.threadpool.ThreadPool;
 import org.opensearch.transport.BytesTransportRequest;
 import org.opensearch.transport.TransportChannel;
@@ -75,6 +76,7 @@ public class PublicationTransportHandler {
 
     public static final String PUBLISH_STATE_ACTION_NAME = "internal:cluster/coordination/publish_state";
     public static final String COMMIT_STATE_ACTION_NAME = "internal:cluster/coordination/commit_state";
+    public static final String PUBLISH_REMOTE_STATE_ACTION_NAME = "internal:cluster/coordination/publish_remote_state";
 
     private final TransportService transportService;
     private final NamedWriteableRegistry namedWriteableRegistry;
@@ -97,16 +99,19 @@ public class PublicationTransportHandler {
     private final TransportRequestOptions stateRequestOptions = TransportRequestOptions.builder()
         .withType(TransportRequestOptions.Type.STATE)
         .build();
+    private final RemoteClusterStateService remoteClusterStateService;
 
     public PublicationTransportHandler(
         TransportService transportService,
         NamedWriteableRegistry namedWriteableRegistry,
         Function<PublishRequest, PublishWithJoinResponse> handlePublishRequest,
-        BiConsumer<ApplyCommitRequest, ActionListener<Void>> handleApplyCommit
+        BiConsumer<ApplyCommitRequest, ActionListener<Void>> handleApplyCommit,
+        RemoteClusterStateService remoteClusterStateService
     ) {
         this.transportService = transportService;
         this.namedWriteableRegistry = namedWriteableRegistry;
         this.handlePublishRequest = handlePublishRequest;
+        this.remoteClusterStateService = remoteClusterStateService;
 
         transportService.registerRequestHandler(
             PUBLISH_STATE_ACTION_NAME,
@@ -124,6 +129,15 @@ public class PublicationTransportHandler {
             false,
             ApplyCommitRequest::new,
             (request, channel, task) -> handleApplyCommit.accept(request, transportCommitCallback(channel))
+        );
+
+        transportService.registerRequestHandler(
+            PUBLISH_REMOTE_STATE_ACTION_NAME,
+            ThreadPool.Names.GENERIC,
+            false,
+            false,
+            PublishRemoteStateRequest::new,
+            (request, channel, task) ->  channel.sendResponse(handleIncomingRemotePublishRequest(request))
         );
     }
 
@@ -211,6 +225,31 @@ public class PublicationTransportHandler {
         }
     }
 
+    private PublishWithJoinResponse handleIncomingRemotePublishRequest(PublishRemoteStateRequest request) throws IOException {
+        ClusterState incomingState;
+        try {
+            final ClusterState lastSeen = lastSeenClusterState.get();
+            if (lastSeen != null) {
+                final Diff<ClusterState> diff = remoteClusterStateService.downloadDiffState(request.getClusterName(), request.getClusterUuid(), request.getDiffFilePath(), transportService.getLocalNode());
+                incomingState = diff.apply(lastSeen);
+                logger.info("Downloaded diff remote state. Term: {}, version:{}", incomingState.coordinationMetadata().term(), incomingState.version());
+                final PublishWithJoinResponse response = acceptState(incomingState);
+                lastSeenClusterState.compareAndSet(lastSeen, incomingState);
+                return response;
+            } else {
+                incomingState = remoteClusterStateService.downloadClusterState(request.getClusterName(), request.getClusterUuid(), request.getClusterStateFilePath(), transportService.getLocalNode());
+                logger.info("Downloaded full remote state. Term: {}, version:{}", incomingState.coordinationMetadata().term(), incomingState.version());
+            }
+        } catch (IncompatibleClusterStateVersionException e) {
+            logger.error("Diff state is incompatible. Downloading full state", e);
+            incomingState = remoteClusterStateService.downloadClusterState(request.getClusterName(), request.getClusterUuid(), request.getClusterStateFilePath(), transportService.getLocalNode());
+            logger.info("Downloaded full remote state. Term: {}, version:{}", incomingState.coordinationMetadata().term(), incomingState.version());
+        }
+        final PublishWithJoinResponse response = acceptState(incomingState);
+        lastSeenClusterState.set(incomingState);
+        return response;
+    }
+
     private PublishWithJoinResponse acceptState(ClusterState incomingState) {
         // if the state is coming from the current node, use original request instead (see currentPublishRequestToSelf for explanation)
         if (transportService.getLocalNode().equals(incomingState.nodes().getClusterManagerNode())) {
@@ -224,8 +263,8 @@ public class PublicationTransportHandler {
         return handlePublishRequest.apply(new PublishRequest(incomingState));
     }
 
-    public PublicationContext newPublicationContext(ClusterChangedEvent clusterChangedEvent) {
-        final PublicationContext publicationContext = new PublicationContext(clusterChangedEvent);
+    public PublicationContext newPublicationContext(ClusterChangedEvent clusterChangedEvent, boolean isRemoteStateEnabled) {
+        final PublicationContext publicationContext = new PublicationContext(clusterChangedEvent, isRemoteStateEnabled);
 
         // Build the serializations we expect to need now, early in the process, so that an error during serialization fails the publication
         // straight away. This isn't watertight since we send diffs on a best-effort basis and may fall back to sending a full state (and
@@ -270,12 +309,14 @@ public class PublicationTransportHandler {
         private final boolean sendFullVersion;
         private final Map<Version, BytesReference> serializedStates = new HashMap<>();
         private final Map<Version, BytesReference> serializedDiffs = new HashMap<>();
+        private final boolean isRemoteStateEnabled;
 
-        PublicationContext(ClusterChangedEvent clusterChangedEvent) {
+        PublicationContext(ClusterChangedEvent clusterChangedEvent, boolean isRemoteStateEnabled) {
             discoveryNodes = clusterChangedEvent.state().nodes();
             newState = clusterChangedEvent.state();
             previousState = clusterChangedEvent.previousState();
             sendFullVersion = previousState.getBlocks().disableStatePersistence();
+            this.isRemoteStateEnabled = isRemoteStateEnabled;
         }
 
         void buildDiffAndSerializeStates() {
@@ -311,7 +352,8 @@ public class PublicationTransportHandler {
         public void sendPublishRequest(
             DiscoveryNode destination,
             PublishRequest publishRequest,
-            ActionListener<PublishWithJoinResponse> listener
+            ActionListener<PublishWithJoinResponse> listener,
+            PublishRemoteStateRequest publishRemoteStateRequest
         ) {
             assert publishRequest.getAcceptedState() == newState : "state got switched on us";
             assert transportService.getThreadPool().getThreadContext().isSystemContext();
@@ -341,10 +383,18 @@ public class PublicationTransportHandler {
             }
             if (sendFullVersion || previousState.nodes().nodeExists(destination) == false) {
                 logger.trace("sending full cluster state version [{}] to [{}]", newState.version(), destination);
-                sendFullClusterState(destination, responseActionListener);
+                if (isRemoteStateEnabled) {
+                    sendPublishRemoteStateRequest(destination, publishRemoteStateRequest, responseActionListener);
+                } else {
+                    sendFullClusterState(destination, responseActionListener);
+                }
             } else {
                 logger.trace("sending cluster state diff for version [{}] to [{}]", newState.version(), destination);
-                sendClusterStateDiff(destination, responseActionListener);
+                if (isRemoteStateEnabled) {
+                    sendPublishRemoteStateRequest(destination, publishRemoteStateRequest, responseActionListener);
+                } else {
+                    sendClusterStateDiff(destination, responseActionListener);
+                }
             }
         }
 
@@ -379,6 +429,40 @@ public class PublicationTransportHandler {
                     @Override
                     public String executor() {
                         return ThreadPool.Names.GENERIC;
+                    }
+                }
+            );
+        }
+
+        public void sendPublishRemoteStateRequest(
+            DiscoveryNode destination,
+            PublishRemoteStateRequest publishRemoteStateRequest,
+            ActionListener<PublishWithJoinResponse> listener
+        ) {
+            transportService.sendRequest(
+                destination,
+                PUBLISH_REMOTE_STATE_ACTION_NAME,
+                publishRemoteStateRequest,
+                stateRequestOptions,
+                new TransportResponseHandler<PublishWithJoinResponse>() {
+                    @Override
+                    public void handleResponse(PublishWithJoinResponse response) {
+                        listener.onResponse(response);
+                    }
+
+                    @Override
+                    public void handleException(TransportException exp) {
+                        listener.onFailure(exp);
+                    }
+
+                    @Override
+                    public String executor() {
+                        return ThreadPool.Names.GENERIC;
+                    }
+
+                    @Override
+                    public PublishWithJoinResponse read(StreamInput in) throws IOException {
+                        return new PublishWithJoinResponse(in);
                     }
                 }
             );

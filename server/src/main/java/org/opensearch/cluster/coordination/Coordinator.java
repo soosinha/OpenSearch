@@ -84,8 +84,10 @@ import org.opensearch.discovery.HandshakingTransportAddressConnector;
 import org.opensearch.discovery.PeerFinder;
 import org.opensearch.discovery.SeedHostsProvider;
 import org.opensearch.discovery.SeedHostsResolver;
+import org.opensearch.gateway.remote.RemoteClusterStateService;
 import org.opensearch.monitor.NodeHealthService;
 import org.opensearch.monitor.StatusInfo;
+import org.opensearch.node.remotestore.RemoteStoreNodeAttribute;
 import org.opensearch.node.remotestore.RemoteStoreNodeService;
 import org.opensearch.threadpool.Scheduler;
 import org.opensearch.threadpool.ThreadPool.Names;
@@ -185,6 +187,7 @@ public class Coordinator extends AbstractLifecycleComponent implements Discovery
     private final NodeHealthService nodeHealthService;
     private final PersistedStateRegistry persistedStateRegistry;
     private final RemoteStoreNodeService remoteStoreNodeService;
+    private final RemoteClusterStateService remoteClusterStateService;
 
     /**
      * @param nodeName The name of the node, used to name the {@link java.util.concurrent.ExecutorService} of the {@link SeedHostsResolver}.
@@ -207,7 +210,8 @@ public class Coordinator extends AbstractLifecycleComponent implements Discovery
         ElectionStrategy electionStrategy,
         NodeHealthService nodeHealthService,
         PersistedStateRegistry persistedStateRegistry,
-        RemoteStoreNodeService remoteStoreNodeService
+        RemoteStoreNodeService remoteStoreNodeService,
+        RemoteClusterStateService remoteClusterStateService
     ) {
         this.settings = settings;
         this.transportService = transportService;
@@ -259,7 +263,8 @@ public class Coordinator extends AbstractLifecycleComponent implements Discovery
             transportService,
             namedWriteableRegistry,
             this::handlePublishRequest,
-            this::handleApplyCommit
+            this::handleApplyCommit,
+            remoteClusterStateService
         );
         this.leaderChecker = new LeaderChecker(settings, clusterSettings, transportService, this::onLeaderFailure, nodeHealthService);
         this.followersChecker = new FollowersChecker(
@@ -297,6 +302,7 @@ public class Coordinator extends AbstractLifecycleComponent implements Discovery
         this.persistedStateRegistry = persistedStateRegistry;
         this.localNodeCommissioned = true;
         this.remoteStoreNodeService = remoteStoreNodeService;
+        this.remoteClusterStateService = remoteClusterStateService;
     }
 
     private ClusterFormationState getClusterFormationState() {
@@ -666,7 +672,7 @@ public class Coordinator extends AbstractLifecycleComponent implements Discovery
 
     void becomeCandidate(String method) {
         assert Thread.holdsLock(mutex) : "Coordinator mutex not held";
-        logger.debug(
+        logger.info(
             "{}: coordinator becoming CANDIDATE in term {} (was {}, lastKnownLeader was [{}])",
             method,
             getCurrentTerm(),
@@ -709,7 +715,7 @@ public class Coordinator extends AbstractLifecycleComponent implements Discovery
         assert mode == Mode.CANDIDATE : "expected candidate but was " + mode;
         assert getLocalNode().isClusterManagerNode() : getLocalNode() + " became a leader but is not cluster-manager-eligible";
 
-        logger.debug(
+        logger.info(
             "{}: coordinator becoming LEADER in term {} (was {}, lastKnownLeader was [{}])",
             method,
             getCurrentTerm(),
@@ -739,7 +745,7 @@ public class Coordinator extends AbstractLifecycleComponent implements Discovery
         if (mode == Mode.FOLLOWER && Optional.of(leaderNode).equals(lastKnownLeader)) {
             logger.trace("{}: coordinator remaining FOLLOWER of [{}] in term {}", method, leaderNode, getCurrentTerm());
         } else {
-            logger.debug(
+            logger.info(
                 "{}: coordinator becoming FOLLOWER of [{}] in term {} (was {}, lastKnownLeader was [{}])",
                 method,
                 leaderNode,
@@ -1309,7 +1315,8 @@ public class Coordinator extends AbstractLifecycleComponent implements Discovery
                     + clusterState;
 
                 final PublicationTransportHandler.PublicationContext publicationContext = publicationHandler.newPublicationContext(
-                    clusterChangedEvent
+                    clusterChangedEvent,
+                    RemoteStoreNodeAttribute.isRemoteStoreClusterStateEnabled(settings)
                 );
 
                 final PublishRequest publishRequest = coordinationState.get().handleClientValue(clusterState);
@@ -1326,7 +1333,11 @@ public class Coordinator extends AbstractLifecycleComponent implements Discovery
                 leaderChecker.setCurrentNodes(publishNodes);
                 followersChecker.setCurrentNodes(publishNodes);
                 lagDetector.setTrackedNodes(publishNodes);
-                coordinationState.get().handlePrePublish(clusterState);
+                coordinationState.get().handlePrePublish(clusterState, clusterChangedEvent);
+                final PublishRemoteStateRequest publishRemoteStateRequest = coordinationState.get().createPublishRemoteStateRequest(getLocalNode(), clusterState.term(), clusterState.getVersion(), clusterChangedEvent.previousState().stateUUID(), clusterState.stateUUID());
+                logger.info("PublishRemoteStateRequest is :{}", publishRemoteStateRequest);
+                publication.setPublishRemoteStateRequest(publishRemoteStateRequest);
+
                 publication.start(followersChecker.getFaultyNodes());
             }
         } catch (Exception e) {
@@ -1811,9 +1822,10 @@ public class Coordinator extends AbstractLifecycleComponent implements Discovery
         protected void sendPublishRequest(
             DiscoveryNode destination,
             PublishRequest publishRequest,
-            ActionListener<PublishWithJoinResponse> responseActionListener
+            ActionListener<PublishWithJoinResponse> responseActionListener,
+            PublishRemoteStateRequest publishRemoteStateRequest
         ) {
-            publicationContext.sendPublishRequest(destination, publishRequest, wrapWithMutex(responseActionListener));
+            publicationContext.sendPublishRequest(destination, publishRequest, wrapWithMutex(responseActionListener), publishRemoteStateRequest);
         }
 
         @Override
@@ -1823,6 +1835,12 @@ public class Coordinator extends AbstractLifecycleComponent implements Discovery
             ActionListener<Empty> responseActionListener
         ) {
             publicationContext.sendApplyCommit(destination, applyCommit, wrapWithMutex(responseActionListener));
+        }
+
+        @Override
+        protected void sendPublishRemoteStateRequest(DiscoveryNode destination, PublishRemoteStateRequest publishRemoteStateRequest,
+            ActionListener<PublishWithJoinResponse> responseActionListener) {
+            publicationContext.sendPublishRemoteStateRequest(destination, publishRemoteStateRequest, wrapWithMutex(responseActionListener));
         }
     }
 
