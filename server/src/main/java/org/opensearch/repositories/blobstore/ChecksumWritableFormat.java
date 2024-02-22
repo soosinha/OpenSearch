@@ -53,7 +53,7 @@ import org.opensearch.transport.BytesTransportRequest;
 
 /**
  * ChecksumWritableFormat
- * @param <T>
+ * @opensearch.internal
  */
 public class ChecksumWritableFormat <T extends Writeable> {
     // Serialization parameters to specify correct context for metadata serialization
