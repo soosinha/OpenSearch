@@ -229,7 +229,9 @@ public class PublicationTransportHandler {
         ClusterState incomingState;
         try {
             final ClusterState lastSeen = lastSeenClusterState.get();
-            if (lastSeen != null) {
+            String[] tokens = request.getDiffFilePath().split("/");
+            String diffStateFileName = tokens[tokens.length - 1];
+            if (lastSeen != null && !diffStateFileName.equals("NA")) {
                 final Diff<ClusterState> diff = remoteClusterStateService.downloadDiffState(request.getClusterName(), request.getClusterUuid(), request.getDiffFilePath(), transportService.getLocalNode());
                 incomingState = diff.apply(lastSeen);
                 logger.info("Downloaded diff remote state. Term: {}, version:{}", incomingState.coordinationMetadata().term(), incomingState.version());
