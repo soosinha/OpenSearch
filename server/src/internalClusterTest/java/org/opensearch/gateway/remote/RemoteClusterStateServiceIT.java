@@ -27,13 +27,13 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.opensearch.cluster.metadata.IndexMetadata.SETTING_NUMBER_OF_REPLICAS;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.COORDINATION_METADATA;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.CUSTOM_METADATA;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.DELIMITER;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.METADATA_FILE_PREFIX;
 import static org.opensearch.gateway.remote.RemoteClusterStateService.REMOTE_CLUSTER_STATE_ENABLED_SETTING;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.SETTING_METADATA;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.TEMPLATES_METADATA;
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.METADATA_FILE_PREFIX;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.COORDINATION_METADATA;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.CUSTOM_METADATA;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.SETTING_METADATA;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.TEMPLATES_METADATA;
 
 @OpenSearchIntegTestCase.ClusterScope(scope = OpenSearchIntegTestCase.Scope.TEST, numDataNodes = 0)
 public class RemoteClusterStateServiceIT extends RemoteStoreBaseIntegTestCase {

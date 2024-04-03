@@ -104,21 +104,22 @@ public class ClusterMetadataManifestTests extends OpenSearchTestCase {
             Collections.singletonList(uploadedIndexMetadata),
             "prev-cluster-uuid",
             true,
-            new UploadedMetadataAttribute(RemoteClusterStateService.COORDINATION_METADATA, "coordination-file"),
-            new UploadedMetadataAttribute(RemoteClusterStateService.SETTING_METADATA, "setting-file"),
-            new UploadedMetadataAttribute(RemoteClusterStateService.TEMPLATES_METADATA, "templates-file"),
+            new UploadedMetadataAttribute(RemoteGlobalMetadataManager.COORDINATION_METADATA, "coordination-file"),
+            new UploadedMetadataAttribute(RemoteGlobalMetadataManager.SETTING_METADATA, "setting-file"),
+            new UploadedMetadataAttribute(RemoteGlobalMetadataManager.TEMPLATES_METADATA, "templates-file"),
             Collections.unmodifiableList(
                 Arrays.asList(
                     new UploadedMetadataAttribute(
-                        RemoteClusterStateService.CUSTOM_METADATA + RemoteClusterStateService.CUSTOM_DELIMITER + RepositoriesMetadata.TYPE,
+                        RemoteGlobalMetadataManager.CUSTOM_METADATA + RemoteGlobalMetadataManager.CUSTOM_DELIMITER
+                            + RepositoriesMetadata.TYPE,
                         "custom--repositories-file"
                     ),
                     new UploadedMetadataAttribute(
-                        RemoteClusterStateService.CUSTOM_METADATA + RemoteClusterStateService.CUSTOM_DELIMITER + IndexGraveyard.TYPE,
+                        RemoteGlobalMetadataManager.CUSTOM_METADATA + RemoteGlobalMetadataManager.CUSTOM_DELIMITER + IndexGraveyard.TYPE,
                         "custom--index_graveyard-file"
                     ),
                     new UploadedMetadataAttribute(
-                        RemoteClusterStateService.CUSTOM_METADATA + RemoteClusterStateService.CUSTOM_DELIMITER
+                        RemoteGlobalMetadataManager.CUSTOM_METADATA + RemoteGlobalMetadataManager.CUSTOM_DELIMITER
                             + WeightedRoutingMetadata.TYPE,
                         "custom--weighted_routing_netadata-file"
                     )
@@ -150,21 +151,22 @@ public class ClusterMetadataManifestTests extends OpenSearchTestCase {
             randomUploadedIndexMetadataList(),
             "yfObdx8KSMKKrXf8UyHhM",
             true,
-            new UploadedMetadataAttribute(RemoteClusterStateService.COORDINATION_METADATA, "coordination-file"),
-            new UploadedMetadataAttribute(RemoteClusterStateService.SETTING_METADATA, "setting-file"),
-            new UploadedMetadataAttribute(RemoteClusterStateService.TEMPLATES_METADATA, "templates-file"),
+            new UploadedMetadataAttribute(RemoteGlobalMetadataManager.COORDINATION_METADATA, "coordination-file"),
+            new UploadedMetadataAttribute(RemoteGlobalMetadataManager.SETTING_METADATA, "setting-file"),
+            new UploadedMetadataAttribute(RemoteGlobalMetadataManager.TEMPLATES_METADATA, "templates-file"),
             Collections.unmodifiableList(
                 Arrays.asList(
                     new UploadedMetadataAttribute(
-                        RemoteClusterStateService.CUSTOM_METADATA + RemoteClusterStateService.CUSTOM_DELIMITER + RepositoriesMetadata.TYPE,
+                        RemoteGlobalMetadataManager.CUSTOM_METADATA + RemoteGlobalMetadataManager.CUSTOM_DELIMITER
+                            + RepositoriesMetadata.TYPE,
                         "custom--repositories-file"
                     ),
                     new UploadedMetadataAttribute(
-                        RemoteClusterStateService.CUSTOM_METADATA + RemoteClusterStateService.CUSTOM_DELIMITER + IndexGraveyard.TYPE,
+                        RemoteGlobalMetadataManager.CUSTOM_METADATA + RemoteGlobalMetadataManager.CUSTOM_DELIMITER + IndexGraveyard.TYPE,
                         "custom--index_graveyard-file"
                     ),
                     new UploadedMetadataAttribute(
-                        RemoteClusterStateService.CUSTOM_METADATA + RemoteClusterStateService.CUSTOM_DELIMITER
+                        RemoteGlobalMetadataManager.CUSTOM_METADATA + RemoteGlobalMetadataManager.CUSTOM_DELIMITER
                             + WeightedRoutingMetadata.TYPE,
                         "custom--weighted_routing_netadata-file"
                     )

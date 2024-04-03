@@ -41,7 +41,6 @@ import org.opensearch.core.index.Index;
 import org.opensearch.core.xcontent.NamedXContentRegistry;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedIndexMetadata;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadataAttribute;
-import org.opensearch.index.remote.RemoteStoreUtils;
 import org.opensearch.indices.IndicesModule;
 import org.opensearch.repositories.FilterRepository;
 import org.opensearch.repositories.RepositoriesService;
@@ -85,16 +84,15 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 
 import static java.util.stream.Collectors.toList;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.COORDINATION_METADATA;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.DELIMITER;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.FORMAT_PARAMS;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.INDEX_METADATA_CURRENT_CODEC_VERSION;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.MANIFEST_CURRENT_CODEC_VERSION;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.MANIFEST_FILE_PREFIX;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.METADATA_FILE_PREFIX;
 import static org.opensearch.gateway.remote.RemoteClusterStateService.RETAINED_MANIFESTS;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.SETTING_METADATA;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.TEMPLATES_METADATA;
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.FORMAT_PARAMS;
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.RemoteStateTransferException;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.COORDINATION_METADATA;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.SETTING_METADATA;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.TEMPLATES_METADATA;
+import static org.opensearch.gateway.remote.RemoteManifestManager.MANIFEST_CURRENT_CODEC_VERSION;
+import static org.opensearch.gateway.remote.RemoteManifestManager.MANIFEST_FILE_PREFIX;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.REMOTE_STORE_CLUSTER_STATE_REPOSITORY_NAME_ATTRIBUTE_KEY;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.REMOTE_STORE_REPOSITORY_SETTINGS_ATTRIBUTE_KEY_PREFIX;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.REMOTE_STORE_REPOSITORY_TYPE_ATTRIBUTE_KEY_FORMAT;
@@ -294,7 +292,7 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
             .provideStream(0)
             .getInputStream()
             .readAllBytes();
-        IndexMetadata writtenIndexMetadata = RemoteClusterStateService.INDEX_METADATA_FORMAT.deserialize(
+        IndexMetadata writtenIndexMetadata = RemoteIndexMetadataManager.INDEX_METADATA_FORMAT.deserialize(
             capturedWriteContext.get("metadata").getFileName(),
             blobStoreRepository.getNamedXContentRegistry(),
             new BytesArray(writtenBytes)
@@ -333,7 +331,7 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
 
         remoteClusterStateService.start();
         assertThrows(
-            RemoteClusterStateService.RemoteStateTransferException.class,
+            RemoteStateTransferException.class,
             () -> remoteClusterStateService.writeFullMetadata(clusterState, randomAlphaOfLength(10))
         );
     }
@@ -366,7 +364,7 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
         try {
             remoteClusterStateService.writeFullMetadata(clusterState, randomAlphaOfLength(10));
         } catch (Exception e) {
-            assertTrue(e instanceof RemoteClusterStateService.RemoteStateTransferException);
+            assertTrue(e instanceof RemoteStateTransferException);
             assertTrue(e.getMessage().contains("Timed out waiting for transfer of following metadata to complete"));
         }
     }
@@ -387,7 +385,7 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
 
         remoteClusterStateService.start();
         assertThrows(
-            RemoteClusterStateService.RemoteStateTransferException.class,
+            RemoteStateTransferException.class,
             () -> remoteClusterStateService.writeFullMetadata(clusterState, randomAlphaOfLength(10))
         );
         assertEquals(0, remoteClusterStateService.getStats().getSuccessCount());
@@ -828,24 +826,6 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
         assertions.accept(initialManifest, manifestAfterMetadataUpdate);
     }
 
-    public void testReadLatestMetadataManifestFailedIOException() throws IOException {
-        final ClusterState clusterState = generateClusterStateWithOneIndex().nodes(nodesWithLocalNodeClusterManager()).build();
-
-        BlobContainer blobContainer = mockBlobStoreObjects();
-        when(blobContainer.listBlobsByPrefixInSortedOrder("manifest" + DELIMITER, 1, BlobContainer.BlobNameSortOrder.LEXICOGRAPHIC))
-            .thenThrow(IOException.class);
-
-        remoteClusterStateService.start();
-        Exception e = assertThrows(
-            IllegalStateException.class,
-            () -> remoteClusterStateService.getLatestClusterMetadataManifest(
-                clusterState.getClusterName().value(),
-                clusterState.metadata().clusterUUID()
-            )
-        );
-        assertEquals(e.getMessage(), "Error while fetching latest manifest file for remote cluster state");
-    }
-
     public void testReadLatestMetadataManifestFailedNoManifestFileInRemote() throws IOException {
         final ClusterState clusterState = generateClusterStateWithOneIndex().nodes(nodesWithLocalNodeClusterManager()).build();
 
@@ -986,10 +966,10 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
             .stateUUID("state-uuid")
             .clusterUUID("cluster-uuid")
             .codecVersion(MANIFEST_CURRENT_CODEC_VERSION)
-            .coordinationMetadata(new UploadedMetadataAttribute(COORDINATION_METADATA, "mock-coordination-file"))
-            .settingMetadata(new UploadedMetadataAttribute(SETTING_METADATA, "mock-setting-file"))
-            .templatesMetadata(new UploadedMetadataAttribute(TEMPLATES_METADATA, "mock-templates-file"))
-            .put(IndexGraveyard.TYPE, new UploadedMetadataAttribute(IndexGraveyard.TYPE, "mock-custom-" +IndexGraveyard.TYPE+ "-file"))
+            .coordinationMetadata(new ClusterMetadataManifest.UploadedMetadataAttribute(COORDINATION_METADATA, "mock-coordination-file"))
+            .settingMetadata(new ClusterMetadataManifest.UploadedMetadataAttribute(SETTING_METADATA, "mock-setting-file"))
+            .templatesMetadata(new ClusterMetadataManifest.UploadedMetadataAttribute(TEMPLATES_METADATA, "mock-templates-file"))
+            .put(IndexGraveyard.TYPE, new ClusterMetadataManifest.UploadedMetadataAttribute(IndexGraveyard.TYPE, "mock-custom-" +IndexGraveyard.TYPE+ "-file"))
             .nodeId("nodeA")
             .opensearchVersion(VersionUtils.randomOpenSearchVersion(random()))
             .previousClusterUUID("prev-cluster-uuid")
@@ -998,7 +978,7 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
         Metadata expactedMetadata = Metadata.builder().persistentSettings(Settings.builder().put("readonly", true).build()).build();
         mockBlobContainerForGlobalMetadata(mockBlobStoreObjects(), expectedManifest, expactedMetadata);
 
-         ClusterState newClusterState = remoteClusterStateService.getLatestClusterState(
+        ClusterState newClusterState = remoteClusterStateService.getLatestClusterState(
             clusterState.getClusterName().value(),
             clusterState.metadata().clusterUUID()
         );
@@ -1036,7 +1016,7 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
         BlobContainer blobContainer = mockBlobStoreObjects();
         mockBlobContainerForGlobalMetadata(blobContainer, expectedManifest, expactedMetadata);
 
-        when(blobContainer.readBlob(RemoteClusterStateService.GLOBAL_METADATA_FORMAT.blobName(globalIndexMetadataName))).thenThrow(
+        when(blobContainer.readBlob(RemoteGlobalMetadataManager.GLOBAL_METADATA_FORMAT.blobName(globalIndexMetadataName))).thenThrow(
             FileNotFoundException.class
         );
 
@@ -1300,46 +1280,6 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
         }
     }
 
-    public void testFileNames() {
-        final Index index = new Index("test-index", "index-uuid");
-        final Settings idxSettings = Settings.builder()
-            .put(IndexMetadata.SETTING_VERSION_CREATED, Version.CURRENT)
-            .put(IndexMetadata.SETTING_INDEX_UUID, index.getUUID())
-            .build();
-        final IndexMetadata indexMetadata = new IndexMetadata.Builder(index.getName()).settings(idxSettings)
-            .numberOfShards(1)
-            .numberOfReplicas(0)
-            .build();
-
-        String indexMetadataFileName = RemoteClusterStateService.indexMetadataFileName(indexMetadata);
-        String[] splittedIndexMetadataFileName = indexMetadataFileName.split(DELIMITER);
-        assertThat(indexMetadataFileName.split(DELIMITER).length, is(4));
-        assertThat(splittedIndexMetadataFileName[0], is(METADATA_FILE_PREFIX));
-        assertThat(splittedIndexMetadataFileName[1], is(RemoteStoreUtils.invertLong(indexMetadata.getVersion())));
-        assertThat(splittedIndexMetadataFileName[3], is(String.valueOf(INDEX_METADATA_CURRENT_CODEC_VERSION)));
-
-        verifyManifestFileNameWithCodec(MANIFEST_CURRENT_CODEC_VERSION);
-        verifyManifestFileNameWithCodec(ClusterMetadataManifest.CODEC_V1);
-        verifyManifestFileNameWithCodec(ClusterMetadataManifest.CODEC_V0);
-    }
-
-    private void verifyManifestFileNameWithCodec(int codecVersion) {
-        int term = randomIntBetween(5, 10);
-        int version = randomIntBetween(5, 10);
-        String manifestFileName = RemoteClusterStateService.getManifestFileName(term, version, true, codecVersion);
-        assertThat(manifestFileName.split(DELIMITER).length, is(6));
-        String[] splittedName = manifestFileName.split(DELIMITER);
-        assertThat(splittedName[0], is(MANIFEST_FILE_PREFIX));
-        assertThat(splittedName[1], is(RemoteStoreUtils.invertLong(term)));
-        assertThat(splittedName[2], is(RemoteStoreUtils.invertLong(version)));
-        assertThat(splittedName[3], is("C"));
-        assertThat(splittedName[5], is(String.valueOf(codecVersion)));
-
-        manifestFileName = RemoteClusterStateService.getManifestFileName(term, version, false, codecVersion);
-        splittedName = manifestFileName.split(DELIMITER);
-        assertThat(splittedName[3], is("P"));
-    }
-
     public void testSingleConcurrentExecutionOfStaleManifestCleanup() throws Exception {
         BlobContainer blobContainer = mock(BlobContainer.class);
         BlobPath blobPath = new BlobPath().add("random-path");
@@ -1368,54 +1308,6 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
 
         latch.countDown();
         assertBusy(() -> assertEquals(1, callCount.get()));
-    }
-
-    public void testIndexMetadataUploadWaitTimeSetting() {
-        // verify default value
-        assertEquals(
-            RemoteClusterStateService.INDEX_METADATA_UPLOAD_TIMEOUT_DEFAULT,
-            remoteClusterStateService.getIndexMetadataUploadTimeout()
-        );
-
-        // verify update index metadata upload timeout
-        int indexMetadataUploadTimeout = randomIntBetween(1, 10);
-        Settings newSettings = Settings.builder()
-            .put("cluster.remote_store.state.index_metadata.upload_timeout", indexMetadataUploadTimeout + "s")
-            .build();
-        clusterSettings.applySettings(newSettings);
-        assertEquals(indexMetadataUploadTimeout, remoteClusterStateService.getIndexMetadataUploadTimeout().seconds());
-    }
-
-    public void testMetadataManifestUploadWaitTimeSetting() {
-        // verify default value
-        assertEquals(
-            RemoteClusterStateService.METADATA_MANIFEST_UPLOAD_TIMEOUT_DEFAULT,
-            remoteClusterStateService.getMetadataManifestUploadTimeout()
-        );
-
-        // verify update metadata manifest upload timeout
-        int metadataManifestUploadTimeout = randomIntBetween(1, 10);
-        Settings newSettings = Settings.builder()
-            .put("cluster.remote_store.state.metadata_manifest.upload_timeout", metadataManifestUploadTimeout + "s")
-            .build();
-        clusterSettings.applySettings(newSettings);
-        assertEquals(metadataManifestUploadTimeout, remoteClusterStateService.getMetadataManifestUploadTimeout().seconds());
-    }
-
-    public void testGlobalMetadataUploadWaitTimeSetting() {
-        // verify default value
-        assertEquals(
-            RemoteClusterStateService.GLOBAL_METADATA_UPLOAD_TIMEOUT_DEFAULT,
-            remoteClusterStateService.getGlobalMetadataUploadTimeout()
-        );
-
-        // verify update global metadata upload timeout
-        int globalMetadataUploadTimeout = randomIntBetween(1, 10);
-        Settings newSettings = Settings.builder()
-            .put("cluster.remote_store.state.global_metadata.upload_timeout", globalMetadataUploadTimeout + "s")
-            .build();
-        clusterSettings.applySettings(newSettings);
-        assertEquals(globalMetadataUploadTimeout, remoteClusterStateService.getGlobalMetadataUploadTimeout().seconds());
     }
 
     private void mockObjectsForGettingPreviousClusterUUID(Map<String, String> clusterUUIDsPointers) throws IOException {
@@ -1664,7 +1556,7 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
         when(blobContainer.listBlobsByPrefixInSortedOrder("manifest" + DELIMITER, 1, BlobContainer.BlobNameSortOrder.LEXICOGRAPHIC))
             .thenReturn(Arrays.asList(blobMetadata));
 
-        BytesReference bytes = RemoteClusterStateService.CLUSTER_METADATA_MANIFEST_FORMAT.serialize(
+        BytesReference bytes = RemoteManifestManager.CLUSTER_METADATA_MANIFEST_FORMAT.serialize(
             clusterMetadataManifest,
             manifestFileName,
             blobStoreRepository.getCompressor(),
@@ -1680,7 +1572,7 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
                 }
                 String fileName = uploadedIndexMetadata.getUploadedFilename();
                 when(blobContainer.readBlob(fileName + ".dat")).thenAnswer((invocationOnMock) -> {
-                    BytesReference bytesIndexMetadata = RemoteClusterStateService.INDEX_METADATA_FORMAT.serialize(
+                    BytesReference bytesIndexMetadata = RemoteIndexMetadataManager.INDEX_METADATA_FORMAT.serialize(
                         indexMetadata,
                         fileName,
                         blobStoreRepository.getCompressor(),
@@ -1702,15 +1594,10 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
         int codecVersion = clusterMetadataManifest.getCodecVersion();
         String mockManifestFileName = "manifest__1__2__C__456__" + codecVersion;
         BlobMetadata blobMetadata = new PlainBlobMetadata(mockManifestFileName, 1);
-        when(
-            blobContainer.listBlobsByPrefixInSortedOrder(
-                "manifest" + RemoteClusterStateService.DELIMITER,
-                1,
-                BlobContainer.BlobNameSortOrder.LEXICOGRAPHIC
-            )
-        ).thenReturn(Arrays.asList(blobMetadata));
+        when(blobContainer.listBlobsByPrefixInSortedOrder("manifest" + DELIMITER, 1, BlobContainer.BlobNameSortOrder.LEXICOGRAPHIC))
+            .thenReturn(Arrays.asList(blobMetadata));
 
-        BytesReference bytes = RemoteClusterStateService.CLUSTER_METADATA_MANIFEST_FORMAT.serialize(
+        BytesReference bytes = RemoteManifestManager.CLUSTER_METADATA_MANIFEST_FORMAT.serialize(
             clusterMetadataManifest,
             mockManifestFileName,
             blobStoreRepository.getCompressor(),
@@ -1719,22 +1606,21 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
         when(blobContainer.readBlob(mockManifestFileName)).thenReturn(new ByteArrayInputStream(bytes.streamInput().readAllBytes()));
         if (codecVersion >= ClusterMetadataManifest.CODEC_V2) {
             String coordinationFileName = getFileNameFromPath(clusterMetadataManifest.getCoordinationMetadata().getUploadedFilename());
-            when(blobContainer.readBlob(RemoteClusterStateService.COORDINATION_METADATA_FORMAT.blobName(coordinationFileName))).thenAnswer(
-                (invocationOnMock) -> {
-                    BytesReference bytesReference = RemoteClusterStateService.COORDINATION_METADATA_FORMAT.serialize(
+            when(blobContainer.readBlob(RemoteGlobalMetadataManager.COORDINATION_METADATA_FORMAT.blobName(coordinationFileName)))
+                .thenAnswer((invocationOnMock) -> {
+                    BytesReference bytesReference = RemoteGlobalMetadataManager.COORDINATION_METADATA_FORMAT.serialize(
                         metadata.coordinationMetadata(),
                         coordinationFileName,
                         blobStoreRepository.getCompressor(),
                         FORMAT_PARAMS
                     );
                     return new ByteArrayInputStream(bytesReference.streamInput().readAllBytes());
-                }
-            );
+                });
 
             String settingsFileName = getFileNameFromPath(clusterMetadataManifest.getSettingsMetadata().getUploadedFilename());
-            when(blobContainer.readBlob(RemoteClusterStateService.SETTINGS_METADATA_FORMAT.blobName(settingsFileName))).thenAnswer(
+            when(blobContainer.readBlob(RemoteGlobalMetadataManager.SETTINGS_METADATA_FORMAT.blobName(settingsFileName))).thenAnswer(
                 (invocationOnMock) -> {
-                    BytesReference bytesReference = RemoteClusterStateService.SETTINGS_METADATA_FORMAT.serialize(
+                    BytesReference bytesReference = RemoteGlobalMetadataManager.SETTINGS_METADATA_FORMAT.serialize(
                         metadata.persistentSettings(),
                         settingsFileName,
                         blobStoreRepository.getCompressor(),
@@ -1745,9 +1631,9 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
             );
 
             String templatesFileName = getFileNameFromPath(clusterMetadataManifest.getTemplatesMetadata().getUploadedFilename());
-            when(blobContainer.readBlob(RemoteClusterStateService.TEMPLATES_METADATA_FORMAT.blobName(templatesFileName))).thenAnswer(
+            when(blobContainer.readBlob(RemoteGlobalMetadataManager.TEMPLATES_METADATA_FORMAT.blobName(templatesFileName))).thenAnswer(
                 (invocationOnMock) -> {
-                    BytesReference bytesReference = RemoteClusterStateService.TEMPLATES_METADATA_FORMAT.serialize(
+                    BytesReference bytesReference = RemoteGlobalMetadataManager.TEMPLATES_METADATA_FORMAT.serialize(
                         metadata.templatesMetadata(),
                         templatesFileName,
                         blobStoreRepository.getCompressor(),
@@ -1765,9 +1651,9 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
             for (Map.Entry<String, String> entry : customFileMap.entrySet()) {
                 String custom = entry.getKey();
                 String fileName = entry.getValue();
-                when(blobContainer.readBlob(RemoteClusterStateService.CUSTOM_METADATA_FORMAT.blobName(fileName))).thenAnswer(
+                when(blobContainer.readBlob(RemoteGlobalMetadataManager.CUSTOM_METADATA_FORMAT.blobName(fileName))).thenAnswer(
                     (invocation) -> {
-                        BytesReference bytesReference = RemoteClusterStateService.CUSTOM_METADATA_FORMAT.serialize(
+                        BytesReference bytesReference = RemoteGlobalMetadataManager.CUSTOM_METADATA_FORMAT.serialize(
                             metadata.custom(custom),
                             fileName,
                             blobStoreRepository.getCompressor(),
@@ -1779,9 +1665,9 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
             }
         } else if (codecVersion == ClusterMetadataManifest.CODEC_V1) {
             String[] splitPath = clusterMetadataManifest.getGlobalMetadataFileName().split("/");
-            when(blobContainer.readBlob(RemoteClusterStateService.GLOBAL_METADATA_FORMAT.blobName(splitPath[splitPath.length - 1])))
+            when(blobContainer.readBlob(RemoteGlobalMetadataManager.GLOBAL_METADATA_FORMAT.blobName(splitPath[splitPath.length - 1])))
                 .thenAnswer((invocationOnMock) -> {
-                    BytesReference bytesGlobalMetadata = RemoteClusterStateService.GLOBAL_METADATA_FORMAT.serialize(
+                    BytesReference bytesGlobalMetadata = RemoteGlobalMetadataManager.GLOBAL_METADATA_FORMAT.serialize(
                         metadata,
                         "global-metadata-file",
                         blobStoreRepository.getCompressor(),
@@ -1797,7 +1683,7 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
         return splitPath[splitPath.length - 1];
     }
 
-    private static ClusterState.Builder generateClusterStateWithGlobalMetadata() {
+    static ClusterState.Builder generateClusterStateWithGlobalMetadata() {
         final Settings clusterSettings = Settings.builder().put("cluster.blocks.read_only", true).build();
         final CoordinationMetadata coordinationMetadata = CoordinationMetadata.builder().term(1L).build();
 
@@ -1813,7 +1699,7 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
             );
     }
 
-    private static ClusterState.Builder generateClusterStateWithOneIndex() {
+    static ClusterState.Builder generateClusterStateWithOneIndex() {
         final Index index = new Index("test-index", "index-uuid");
         final Settings idxSettings = Settings.builder()
             .put(IndexMetadata.SETTING_VERSION_CREATED, Version.CURRENT)
@@ -1843,7 +1729,7 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
             );
     }
 
-    private static DiscoveryNodes nodesWithLocalNodeClusterManager() {
+    static DiscoveryNodes nodesWithLocalNodeClusterManager() {
         return DiscoveryNodes.builder().clusterManagerNodeId("cluster-manager-id").localNodeId("cluster-manager-id").build();
     }
 
