@@ -706,6 +706,7 @@ public final class ClusterSettings extends AbstractScopedSettings {
 
                 // Remote cluster state settings
                 RemoteClusterStateService.REMOTE_CLUSTER_STATE_ENABLED_SETTING,
+                RemoteClusterStateService.REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING,
                 RemoteIndexMetadataManager.INDEX_METADATA_UPLOAD_TIMEOUT_SETTING,
                 RemoteGlobalMetadataManager.GLOBAL_METADATA_UPLOAD_TIMEOUT_SETTING,
                 RemoteManifestManager.METADATA_MANIFEST_UPLOAD_TIMEOUT_SETTING,

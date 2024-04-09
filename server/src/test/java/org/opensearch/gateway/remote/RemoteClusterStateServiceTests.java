@@ -33,6 +33,7 @@ import org.opensearch.common.lucene.store.ByteArrayIndexInput;
 import org.opensearch.common.network.NetworkModule;
 import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.Settings;
+import org.opensearch.common.util.concurrent.AbstractAsyncTask;
 import org.opensearch.core.ParseField;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.core.common.bytes.BytesArray;
@@ -84,6 +85,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 
 import static java.util.stream.Collectors.toList;
+import static org.opensearch.gateway.remote.RemoteClusterStateService.REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING;
 import static org.opensearch.gateway.remote.RemoteClusterStateService.RETAINED_MANIFESTS;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.FORMAT_PARAMS;
@@ -93,6 +95,7 @@ import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.SETTING_
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.TEMPLATES_METADATA;
 import static org.opensearch.gateway.remote.RemoteManifestManager.MANIFEST_CURRENT_CODEC_VERSION;
 import static org.opensearch.gateway.remote.RemoteManifestManager.MANIFEST_FILE_PREFIX;
+import static org.opensearch.node.NodeRoleSettings.NODE_ROLES_SETTING;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.REMOTE_STORE_CLUSTER_STATE_REPOSITORY_NAME_ATTRIBUTE_KEY;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.REMOTE_STORE_REPOSITORY_SETTINGS_ATTRIBUTE_KEY_PREFIX;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.REMOTE_STORE_REPOSITORY_TYPE_ATTRIBUTE_KEY_FORMAT;
@@ -109,6 +112,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.opensearch.test.OpenSearchIntegTestCase.client;
 
 public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
 
@@ -1308,6 +1312,52 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
 
         latch.countDown();
         assertBusy(() -> assertEquals(1, callCount.get()));
+    }
+
+    public void testRemoteCleanupTaskScheduled() {
+        AbstractAsyncTask cleanupTask = remoteClusterStateService.getStaleFileDeletionTask();
+        assertNull(cleanupTask);
+
+        remoteClusterStateService.start();
+        assertNotNull(remoteClusterStateService.getStaleFileDeletionTask());
+        assertTrue(remoteClusterStateService.getStaleFileDeletionTask().mustReschedule());
+        assertEquals(
+            clusterSettings.get(REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING),
+            remoteClusterStateService.getStaleFileDeletionTask().getInterval()
+        );
+        assertTrue(remoteClusterStateService.getStaleFileDeletionTask().isScheduled());
+        assertFalse(remoteClusterStateService.getStaleFileDeletionTask().isClosed());
+    }
+
+    public void testRemoteCleanupNotInitializedOnDataOnlyNode() {
+        String stateRepoTypeAttributeKey = String.format(
+            Locale.getDefault(),
+            "node.attr." + REMOTE_STORE_REPOSITORY_TYPE_ATTRIBUTE_KEY_FORMAT,
+            "remote_store_repository"
+        );
+        String stateRepoSettingsAttributeKeyPrefix = String.format(
+            Locale.getDefault(),
+            "node.attr." + REMOTE_STORE_REPOSITORY_SETTINGS_ATTRIBUTE_KEY_PREFIX,
+            "remote_store_repository"
+        );
+        Settings settings = Settings.builder()
+            .put("node.attr." + REMOTE_STORE_CLUSTER_STATE_REPOSITORY_NAME_ATTRIBUTE_KEY, "remote_store_repository")
+            .putList(NODE_ROLES_SETTING.getKey(), "d")
+            .put(stateRepoTypeAttributeKey, FsRepository.TYPE)
+            .put(stateRepoSettingsAttributeKeyPrefix + "location", "randomRepoPath")
+            .put(RemoteClusterStateService.REMOTE_CLUSTER_STATE_ENABLED_SETTING.getKey(), true)
+            .build();
+        ClusterSettings dataNodeClusterSettings = new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
+        remoteClusterStateService = new RemoteClusterStateService(
+            "test-node-id",
+            repositoriesServiceSupplier,
+            settings,
+            dataNodeClusterSettings,
+            () -> 0L,
+            threadPool
+        );
+        remoteClusterStateService.start();
+        assertNull(remoteClusterStateService.getStaleFileDeletionTask());
     }
 
     private void mockObjectsForGettingPreviousClusterUUID(Map<String, String> clusterUUIDsPointers) throws IOException {

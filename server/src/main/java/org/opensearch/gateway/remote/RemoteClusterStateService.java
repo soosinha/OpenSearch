@@ -15,6 +15,7 @@ import org.opensearch.action.LatchedActionListener;
 import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.cluster.metadata.Metadata;
+import org.opensearch.cluster.node.DiscoveryNode;
 import org.opensearch.common.CheckedRunnable;
 import org.opensearch.common.Nullable;
 import org.opensearch.common.blobstore.BlobContainer;
@@ -25,6 +26,7 @@ import org.opensearch.common.settings.Setting;
 import org.opensearch.common.settings.Setting.Property;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.TimeValue;
+import org.opensearch.common.util.concurrent.AbstractAsyncTask;
 import org.opensearch.common.util.io.IOUtils;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedIndexMetadata;
@@ -85,6 +87,7 @@ import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.isRemoteS
  */
 public class RemoteClusterStateService implements Closeable {
     public static final int RETAINED_MANIFESTS = 10;
+    public static final int SKIP_CLEANUP_STATE_CHANGES = 10;
 
     private static final Logger logger = LogManager.getLogger(RemoteClusterStateService.class);
 
@@ -96,6 +99,17 @@ public class RemoteClusterStateService implements Closeable {
         false,
         Property.NodeScope,
         Property.Final
+    );
+
+    /**
+     * Setting to specify the interval to do run stale file cleanup job
+     */
+    public static final Setting<TimeValue> REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING = Setting.timeSetting(
+        "cluster.remote_store.state.cleanup_interval",
+        TimeValue.timeValueMinutes(5),
+        TimeValue.timeValueMillis(-1),
+        Property.NodeScope,
+        Property.Dynamic
     );
 
     private final String nodeId;
@@ -113,7 +127,13 @@ public class RemoteClusterStateService implements Closeable {
     private RemoteGlobalMetadataManager remoteGlobalMetadataManager;
     private RemoteManifestManager remoteManifestManager;
     private ClusterSettings clusterSettings;
+    private TimeValue staleFileCleanupInterval;
+    private AsyncStaleFileDeletion staleFileDeletionTask;
     public static final int INDEX_METADATA_CURRENT_CODEC_VERSION = 1;
+    private String latestClusterName;
+    private String latestClusterUUID;
+    private long lastCleanupAttemptState;
+    private boolean isClusterManagerNode;
 
     public RemoteClusterStateService(
         String nodeId,
@@ -133,6 +153,10 @@ public class RemoteClusterStateService implements Closeable {
         this.slowWriteLoggingThreshold = clusterSettings.get(SLOW_WRITE_LOGGING_THRESHOLD);
         clusterSettings.addSettingsUpdateConsumer(SLOW_WRITE_LOGGING_THRESHOLD, this::setSlowWriteLoggingThreshold);
         this.remoteStateStats = new RemotePersistenceStats();
+        this.staleFileCleanupInterval = clusterSettings.get(REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING);
+        clusterSettings.addSettingsUpdateConsumer(REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING, this::updateCleanupInterval);
+        this.lastCleanupAttemptState = 0;
+        this.isClusterManagerNode = DiscoveryNode.isClusterManagerNode(settings);
     }
 
     private BlobStoreTransferService getBlobStoreTransferService() {
@@ -314,7 +338,8 @@ public class RemoteClusterStateService implements Closeable {
             firstUpload || !customsToUpload.isEmpty() ? allUploadedCustomMap : previousManifest.getCustomMetadataMap(),
             false
         );
-        deleteStaleClusterMetadata(clusterState.getClusterName().value(), clusterState.metadata().clusterUUID(), RETAINED_MANIFESTS);
+        this.latestClusterName = clusterState.getClusterName().value();
+        this.latestClusterUUID = clusterState.metadata().clusterUUID();
 
         final long durationMillis = TimeValue.nsecToMSec(relativeTimeNanosSupplier.getAsLong() - startTimeNanos);
         remoteStateStats.stateSucceeded();
@@ -503,6 +528,49 @@ public class RemoteClusterStateService implements Closeable {
         return response;
     }
 
+    public TimeValue getStaleFileCleanupInterval() {
+        return this.staleFileCleanupInterval;
+    }
+
+    AsyncStaleFileDeletion getStaleFileDeletionTask() { // for testing
+        return this.staleFileDeletionTask;
+    }
+
+    private void updateCleanupInterval(TimeValue updatedInterval) {
+        if (!isClusterManagerNode) return;
+        this.staleFileCleanupInterval = updatedInterval;
+        logger.info("updated remote state cleanup interval to {}", updatedInterval);
+        // After updating the interval, we need to close the current task and create a new one which will run with updated interval
+        if (!this.staleFileDeletionTask.getInterval().equals(updatedInterval)) {
+            this.staleFileDeletionTask.setInterval(updatedInterval);
+        }
+    }
+
+    private void cleanUpStaleFiles() {
+        long cleanUpAttemptState = remoteStateStats.getSuccessCount();
+        if (
+            cleanUpAttemptState - lastCleanupAttemptState > SKIP_CLEANUP_STATE_CHANGES &&
+            this.latestClusterName != null && this.latestClusterUUID != null
+        ) {
+            logger.info(
+                "Cleaning up stale remote state files for cluster [{}] with uuid [{}]. Last clean was done before {} updates",
+                this.latestClusterName,
+                this.latestClusterUUID,
+                cleanUpAttemptState - lastCleanupAttemptState
+            );
+            deleteStaleClusterMetadata(this.latestClusterName, this.latestClusterUUID, RETAINED_MANIFESTS);
+            lastCleanupAttemptState = cleanUpAttemptState;
+        } else {
+            logger.info(
+                "Skipping cleanup of stale remote state files for cluster [{}] with uuid [{}]. Last clean was done before {} updates, which is less than threshold {}",
+                this.latestClusterName,
+                this.latestClusterUUID,
+                cleanUpAttemptState - lastCleanupAttemptState,
+                SKIP_CLEANUP_STATE_CHANGES
+            );
+        }
+    }
+
     @Nullable
     public ClusterMetadataManifest markLastStateAsCommitted(ClusterState clusterState, ClusterMetadataManifest previousManifest)
         throws IOException {
@@ -539,6 +607,9 @@ public class RemoteClusterStateService implements Closeable {
 
     @Override
     public void close() throws IOException {
+        if (staleFileDeletionTask != null) {
+            staleFileDeletionTask.close();
+        }
         if (blobStoreRepository != null) {
             IOUtils.close(blobStoreRepository);
         }
@@ -556,6 +627,9 @@ public class RemoteClusterStateService implements Closeable {
         remoteGlobalMetadataManager = new RemoteGlobalMetadataManager(blobStoreRepository, clusterSettings);
         remoteIndexMetadataManager = new RemoteIndexMetadataManager(blobStoreRepository, clusterSettings);
         remoteManifestManager = new RemoteManifestManager(blobStoreRepository, clusterSettings, nodeId);
+        if (isClusterManagerNode) {
+            staleFileDeletionTask = new AsyncStaleFileDeletion(this);
+        }
     }
 
     private String fetchPreviousClusterUUID(String clusterName, String clusterUUID) {
@@ -999,5 +1073,24 @@ public class RemoteClusterStateService implements Closeable {
 
     public RemotePersistenceStats getStats() {
         return remoteStateStats;
+    }
+
+    static final class AsyncStaleFileDeletion extends AbstractAsyncTask {
+        private final RemoteClusterStateService remoteClusterStateService;
+        AsyncStaleFileDeletion(RemoteClusterStateService remoteClusterStateService) {
+            super(logger, remoteClusterStateService.threadpool, remoteClusterStateService.getStaleFileCleanupInterval(), true);
+            this.remoteClusterStateService = remoteClusterStateService;
+            rescheduleIfNecessary();
+        }
+
+        @Override
+        protected boolean mustReschedule() {
+            return true;
+        }
+
+        @Override
+        protected void runInternal() {
+            remoteClusterStateService.cleanUpStaleFiles();
+        }
     }
 }
