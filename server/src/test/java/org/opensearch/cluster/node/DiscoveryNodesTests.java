@@ -63,7 +63,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import java.util.stream.StreamSupport;
 
 import static java.util.Collections.singletonMap;
@@ -518,37 +517,33 @@ public class DiscoveryNodesTests extends OpenSearchTestCase {
         String expectedNodeAPUXContent = "%1$s\"node_%2$d\" : {\n"
             + "%1$s  \"name\" : \"name_%2$d\",\n"
             + "%1$s  \"ephemeral_id\" : \"%3$s\",\n"
-            + "%1$s  \"transport_address\" : \"0.0.0.0:%4$d\",\n"
+            + "%1$s  \"transport_address\" : \"%4$s\",\n"
             + "%1$s  \"attributes\" : {%5$s}\n"
             + "%1$s}";
+
+        logger.info(nodes);
 
         verifyToXContentInContextMode(
             CONTEXT_MODE_API,
             nodes,
-            "{\n"
-                + "  \"nodes\" : {\n"
-                + IntStream.range(0, nodes.getSize())
-                    .mapToObj(
-                        i -> String.format(
-                            Locale.ROOT,
-                            expectedNodeAPUXContent,
-                            "    ",
-                            i,
-                            nodes.get("node_" + i).getEphemeralId(),
-                            i + 1,
-                            nodes.get("node_" + i).getAttributes().isEmpty()
-                                ? " "
-                                : "\n" + "        \"custom\" : \"" + nodes.get("node_" + i).getAttributes().get("custom") + "\"\n      "
-                        )
-                    )
-                    .collect(Collectors.joining(",\n"))
-                + "\n"
-                + "  }\n"
-                + "}"
+            "{\n" + "  \"nodes\" : {\n" + nodes.getNodes().entrySet().stream().map(entry -> {
+                int id = Integer.parseInt(entry.getKey().split("_")[1]);
+                return String.format(
+                    Locale.ROOT,
+                    expectedNodeAPUXContent,
+                    "    ",
+                    id,
+                    entry.getValue().getEphemeralId(),
+                    entry.getValue().getAddress().toString(),
+                    entry.getValue().getAttributes().isEmpty()
+                        ? " "
+                        : "\n" + "        \"custom\" : \"" + entry.getValue().getAttributes().get("custom") + "\"\n      "
+                );
+            }).collect(Collectors.joining(",\n")) + "\n" + "  }\n" + "}"
         );
     }
 
-    public void testXContentInGatewayMode() throws IOException {
+    public void testToXContentInGatewayMode() throws IOException {
         DiscoveryNodes nodes = buildDiscoveryNodes();
         String expectedXContent = getExpectedXContentInGatewayMode(nodes);
 
@@ -579,7 +574,7 @@ public class DiscoveryNodesTests extends OpenSearchTestCase {
         String expectedNodeAPUXContent = "%1$s\"node_%2$d\" : {\n"
             + "%1$s  \"name\" : \"name_%2$d\",\n"
             + "%1$s  \"ephemeral_id\" : \"%3$s\",\n"
-            + "%1$s  \"transport_address\" : \"0.0.0.0:%4$d\",\n"
+            + "%1$s  \"transport_address\" : \"%4$s\",\n"
             + "%1$s  \"attributes\" : {%5$s},\n"
             + "%1$s  \"host_name\" : \"0.0.0.0\",\n"
             + "%1$s  \"host_address\" : \"0.0.0.0\",\n"
@@ -587,20 +582,20 @@ public class DiscoveryNodesTests extends OpenSearchTestCase {
             + "%1$s  \"roles\" : [%7$s]\n"
             + "%1$s}";
 
-        return "{\n" + "  \"nodes\" : {\n" + IntStream.range(0, nodes.getSize()).mapToObj(i -> {
-            String nodeId = "node_" + i;
-            DiscoveryNode node = nodes.get(nodeId);
+        return "{\n" + "  \"nodes\" : {\n" + nodes.getNodes().entrySet().stream().map(entry -> {
+            int id = Integer.parseInt(entry.getKey().split("_")[1]);
+            DiscoveryNode node = entry.getValue();
             String indent = "    ";
             return String.format(
                 Locale.ROOT,
                 expectedNodeAPUXContent,
                 indent,
-                i,
+                id,
                 node.getEphemeralId(),
-                i + 1,
+                entry.getValue().getAddress().toString(),
                 node.getAttributes().isEmpty()
                     ? " "
-                    : "\n" + indent + "    \"custom\" : \"" + nodes.get("node_" + i).getAttributes().get("custom") + "\"\n  " + indent,
+                    : "\n" + indent + "    \"custom\" : \"" + node.getAttributes().get("custom") + "\"\n  " + indent,
                 node.getVersion(),
                 node.getRoles().isEmpty()
                     ? " "
