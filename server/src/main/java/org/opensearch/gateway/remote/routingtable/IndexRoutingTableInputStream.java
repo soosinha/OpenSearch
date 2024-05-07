@@ -71,10 +71,9 @@ public class IndexRoutingTableInputStream extends InputStream {
         throws IOException {
         this.buf = new byte[size];
         this.shardIter = indexRoutingTable.iterator();
+        this.indexRoutingTableHeader = new IndexRoutingTableHeader(version, indexRoutingTable.getIndex().getName(), nodeVersion);
         this.bytesStreamOutput = new BytesStreamOutput();
         this.out = new BufferedChecksumStreamOutput(bytesStreamOutput);
-        this.indexRoutingTableHeader = new IndexRoutingTableHeader(version, indexRoutingTable.getIndex().getName(), nodeVersion);
-
         logger.info("indexRoutingTable {}, version {}, nodeVersion {}", indexRoutingTable.prettyPrint(), version, nodeVersion);
 
         initialFill(indexRoutingTable.shards().size());
@@ -121,7 +120,7 @@ public class IndexRoutingTableInputStream extends InputStream {
             IndexShardRoutingTable.Builder.writeTo(next, out);
             //Add checksum for the file after all shards are done
             if(!shardIter.hasNext()) {
-                out.writeInt((int) out.getChecksum());
+                out.writeLong(out.getChecksum());
             }
             out.flush();
             BytesReference bytesRef = bytesStreamOutput.bytes();
