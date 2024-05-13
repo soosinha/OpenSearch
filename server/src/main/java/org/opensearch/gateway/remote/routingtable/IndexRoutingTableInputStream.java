@@ -10,7 +10,6 @@ package org.opensearch.gateway.remote.routingtable;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.opensearch.Version;
 import org.opensearch.cluster.routing.IndexRoutingTable;
 import org.opensearch.cluster.routing.IndexShardRoutingTable;
 import org.opensearch.common.io.stream.BufferedChecksumStreamOutput;
@@ -63,18 +62,18 @@ public class IndexRoutingTableInputStream extends InputStream {
     private final BytesStreamOutput bytesStreamOutput;
     private final BufferedChecksumStreamOutput out;
 
-    public IndexRoutingTableInputStream(IndexRoutingTable indexRoutingTable, long version, Version nodeVersion) throws IOException {
-        this(indexRoutingTable, version, nodeVersion, BUFFER_SIZE);
+    public IndexRoutingTableInputStream(IndexRoutingTable indexRoutingTable) throws IOException {
+        this(indexRoutingTable, BUFFER_SIZE);
     }
 
-    public IndexRoutingTableInputStream(IndexRoutingTable indexRoutingTable, long version, Version nodeVersion, int size)
+    public IndexRoutingTableInputStream(IndexRoutingTable indexRoutingTable, int size)
         throws IOException {
         this.buf = new byte[size];
         this.shardIter = indexRoutingTable.iterator();
-        this.indexRoutingTableHeader = new IndexRoutingTableHeader(version, indexRoutingTable.getIndex().getName(), nodeVersion);
+        this.indexRoutingTableHeader = new IndexRoutingTableHeader(indexRoutingTable.getIndex().getName());
         this.bytesStreamOutput = new BytesStreamOutput();
         this.out = new BufferedChecksumStreamOutput(bytesStreamOutput);
-        logger.info("indexRoutingTable {}, version {}, nodeVersion {}", indexRoutingTable.prettyPrint(), version, nodeVersion);
+        logger.info("indexRoutingTable {}", indexRoutingTable.prettyPrint());
 
         initialFill(indexRoutingTable.shards().size());
     }
