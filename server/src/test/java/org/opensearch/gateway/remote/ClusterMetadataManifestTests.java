@@ -124,7 +124,10 @@ public class ClusterMetadataManifestTests extends OpenSearchTestCase {
                         "custom--weighted_routing_netadata-file"
                     )
                 )
-            ).stream().collect(Collectors.toMap(UploadedMetadataAttribute::getAttributeName, Function.identity()))
+            ).stream().collect(Collectors.toMap(UploadedMetadataAttribute::getAttributeName, Function.identity())),
+            null,
+            null,
+            null
         );
         final XContentBuilder builder = JsonXContent.contentBuilder();
         builder.startObject();
@@ -171,7 +174,10 @@ public class ClusterMetadataManifestTests extends OpenSearchTestCase {
                         "custom--weighted_routing_netadata-file"
                     )
                 )
-            ).stream().collect(Collectors.toMap(UploadedMetadataAttribute::getAttributeName, Function.identity()))
+            ).stream().collect(Collectors.toMap(UploadedMetadataAttribute::getAttributeName, Function.identity())),
+            null,
+            null,
+            null
         );
         {  // Mutate Cluster Term
             EqualsHashCodeTestUtils.checkEqualsAndHashCode(

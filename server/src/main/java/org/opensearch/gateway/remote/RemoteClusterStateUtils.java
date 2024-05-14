@@ -73,19 +73,25 @@ public class RemoteClusterStateUtils {
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedCoordinationMetadata;
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedSettingsMetadata;
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedTemplatesMetadata;
+        ClusterMetadataManifest.UploadedMetadataAttribute uploadedDiscoveryNodes;
+        ClusterMetadataManifest.UploadedMetadataAttribute uploadedClusterBlocks;
 
         public UploadedMetadataResults(
             List<ClusterMetadataManifest.UploadedIndexMetadata> uploadedIndexMetadata,
             Map<String, ClusterMetadataManifest.UploadedMetadataAttribute> uploadedCustomMetadataMap,
             ClusterMetadataManifest.UploadedMetadataAttribute uploadedCoordinationMetadata,
             ClusterMetadataManifest.UploadedMetadataAttribute uploadedSettingsMetadata,
-            ClusterMetadataManifest.UploadedMetadataAttribute uploadedTemplatesMetadata
+            ClusterMetadataManifest.UploadedMetadataAttribute uploadedTemplatesMetadata,
+            ClusterMetadataManifest.UploadedMetadataAttribute uploadedDiscoveryNodes,
+            ClusterMetadataManifest.UploadedMetadataAttribute uploadedClusterBlocks
         ) {
             this.uploadedIndexMetadata = uploadedIndexMetadata;
             this.uploadedCustomMetadataMap = uploadedCustomMetadataMap;
             this.uploadedCoordinationMetadata = uploadedCoordinationMetadata;
             this.uploadedSettingsMetadata = uploadedSettingsMetadata;
             this.uploadedTemplatesMetadata = uploadedTemplatesMetadata;
+            this.uploadedDiscoveryNodes = uploadedDiscoveryNodes;
+            this.uploadedClusterBlocks = uploadedClusterBlocks;
         }
 
         public UploadedMetadataResults() {
@@ -94,6 +100,8 @@ public class RemoteClusterStateUtils {
             this.uploadedCoordinationMetadata = null;
             this.uploadedSettingsMetadata = null;
             this.uploadedTemplatesMetadata = null;
+            this.uploadedDiscoveryNodes = null;
+            this.uploadedClusterBlocks = null;
         }
     }
 }

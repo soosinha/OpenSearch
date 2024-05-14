@@ -59,6 +59,10 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static org.opensearch.gateway.PersistedClusterStateService.SLOW_WRITE_LOGGING_THRESHOLD;
+import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.CLUSTER_BLOCKS;
+import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.CLUSTER_BLOCKS_FORMAT;
+import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.DISCOVERY_NODES;
+import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.DISCOVERY_NODES_FORMAT;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.RemoteStateTransferException;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.UploadedMetadataResults;
@@ -125,6 +129,7 @@ public class RemoteClusterStateService implements Closeable {
     private final RemotePersistenceStats remoteStateStats;
     private RemoteIndexMetadataManager remoteIndexMetadataManager;
     private RemoteGlobalMetadataManager remoteGlobalMetadataManager;
+    private RemoteClusterStateAttributesManager remoteClusterStateAttributesManager;
     private RemoteManifestManager remoteManifestManager;
     private ClusterSettings clusterSettings;
     private TimeValue staleFileCleanupInterval;
@@ -186,6 +191,8 @@ public class RemoteClusterStateService implements Closeable {
             clusterState.metadata().customs(),
             true,
             true,
+            true,
+            true,
             true
         );
         final ClusterMetadataManifest manifest = remoteManifestManager.uploadManifest(
@@ -196,6 +203,9 @@ public class RemoteClusterStateService implements Closeable {
             uploadedMetadataResults.uploadedSettingsMetadata,
             uploadedMetadataResults.uploadedTemplatesMetadata,
             uploadedMetadataResults.uploadedCustomMetadataMap,
+            uploadedMetadataResults.uploadedDiscoveryNodes,
+            uploadedMetadataResults.uploadedClusterBlocks,
+            new ClusterMetadataManifest.ClusterDiffManifest(clusterState, ClusterState.EMPTY_STATE),
             false
         );
         final long durationMillis = TimeValue.nsecToMSec(relativeTimeNanosSupplier.getAsLong() - startTimeNanos);
@@ -256,6 +266,10 @@ public class RemoteClusterStateService implements Closeable {
             previousClusterState.metadata(),
             clusterState.metadata()
         ) == false;
+        // ToDo: check if these needs to be updated or not
+        final boolean updateDiscoveryNodes = clusterState.getNodes().delta(previousClusterState.getNodes()).hasChanges();
+        final boolean updateClusterBlocks = clusterState.blocks().equals(previousClusterState.blocks());
+
         final Map<String, UploadedMetadataAttribute> previousStateCustomMap = new HashMap<>(previousManifest.getCustomMetadataMap());
         final Map<String, Metadata.Custom> customsToUpload = remoteGlobalMetadataManager.getUpdatedCustoms(
             clusterState,
@@ -302,7 +316,16 @@ public class RemoteClusterStateService implements Closeable {
         // For migration case from codec V0 or V1 to V2, we have added null check on metadata attribute files,
         // If file is empty and codec is 1 then write global metadata.
         if (firstUpload) {
-            uploadedMetadataResults = writeMetadataInParallel(clusterState, toUpload, clusterState.metadata().customs(), true, true, true);
+            uploadedMetadataResults = writeMetadataInParallel(
+                clusterState,
+                toUpload,
+                clusterState.metadata().customs(),
+                true,
+                true,
+                true,
+                true,
+                true
+            );
         } else {
             uploadedMetadataResults = writeMetadataInParallel(
                 clusterState,
@@ -310,7 +333,9 @@ public class RemoteClusterStateService implements Closeable {
                 customsToUpload,
                 updateCoordinationMetadata,
                 updateSettingsMetadata,
-                updateTemplatesMetadata
+                updateTemplatesMetadata,
+                updateDiscoveryNodes,
+                updateClusterBlocks
             );
         }
 
@@ -336,6 +361,9 @@ public class RemoteClusterStateService implements Closeable {
                 ? uploadedMetadataResults.uploadedTemplatesMetadata
                 : previousManifest.getTemplatesMetadata(),
             firstUpload || !customsToUpload.isEmpty() ? allUploadedCustomMap : previousManifest.getCustomMetadataMap(),
+            firstUpload || updateDiscoveryNodes ? uploadedMetadataResults.uploadedDiscoveryNodes : previousManifest.getDiscoveryNodesMetadata(),
+            firstUpload || updateClusterBlocks ? uploadedMetadataResults.uploadedClusterBlocks : previousManifest.getClusterBlocksMetadata(),
+            new ClusterMetadataManifest.ClusterDiffManifest(clusterState, previousClusterState),
             false
         );
         this.latestClusterName = clusterState.getClusterName().value();
@@ -382,11 +410,12 @@ public class RemoteClusterStateService implements Closeable {
         Map<String, Metadata.Custom> customToUpload,
         boolean uploadCoordinationMetadata,
         boolean uploadSettingsMetadata,
-        boolean uploadTemplateMetadata
+        boolean uploadTemplateMetadata,
+        boolean uploadDiscoveryNodes,
+        boolean uploadClusterBlock
     ) throws IOException {
         int totalUploadTasks = indexToUpload.size() + customToUpload.size() + (uploadCoordinationMetadata ? 1 : 0) + (uploadSettingsMetadata
-            ? 1
-            : 0) + (uploadTemplateMetadata ? 1 : 0);
+            ? 1 : 0) + (uploadTemplateMetadata ? 1 : 0) + (uploadDiscoveryNodes  ? 1 : 0) + (uploadClusterBlock ? 1 : 0);
         CountDownLatch latch = new CountDownLatch(totalUploadTasks);
         Map<String, CheckedRunnable<IOException>> uploadTasks = new HashMap<>(totalUploadTasks);
         Map<String, ClusterMetadataManifest.UploadedMetadata> results = new HashMap<>(totalUploadTasks);
@@ -438,6 +467,30 @@ public class RemoteClusterStateService implements Closeable {
                     TEMPLATES_METADATA,
                     TEMPLATES_METADATA_FORMAT,
                     clusterState.metadata().templatesMetadata(),
+                    listener
+                )
+            );
+        }
+        if (uploadDiscoveryNodes) {
+            uploadTasks.put(
+                DISCOVERY_NODES,
+                remoteClusterStateAttributesManager.getAsyncMetadataWriteAction(
+                    clusterState,
+                    DISCOVERY_NODES,
+                    DISCOVERY_NODES_FORMAT,
+                    clusterState.nodes(),
+                    listener
+                )
+            );
+        }
+        if (uploadClusterBlock) {
+            uploadTasks.put(
+                CLUSTER_BLOCKS,
+                remoteClusterStateAttributesManager.getAsyncMetadataWriteAction(
+                    clusterState,
+                    CLUSTER_BLOCKS,
+                    CLUSTER_BLOCKS_FORMAT,
+                    clusterState.blocks(),
                     listener
                 )
             );
@@ -521,6 +574,10 @@ public class RemoteClusterStateService implements Closeable {
                 response.uploadedSettingsMetadata = (UploadedMetadataAttribute) uploadedMetadata;
             } else if (TEMPLATES_METADATA.equals(uploadedMetadata.getComponent())) {
                 response.uploadedTemplatesMetadata = (UploadedMetadataAttribute) uploadedMetadata;
+            } else if (DISCOVERY_NODES.equals(uploadedMetadata.getComponent())) {
+                response.uploadedDiscoveryNodes = (UploadedMetadataAttribute) uploadedMetadata;
+            } else if (CLUSTER_BLOCKS.equals(uploadedMetadata.getComponent())) {
+                response.uploadedClusterBlocks = (UploadedMetadataAttribute) uploadedMetadata;
             } else {
                 throw new IllegalStateException("Unexpected metadata component " + uploadedMetadata.getComponent());
             }
@@ -548,10 +605,9 @@ public class RemoteClusterStateService implements Closeable {
 
     private void cleanUpStaleFiles() {
         long cleanUpAttemptState = remoteStateStats.getSuccessCount();
-        if (
-            cleanUpAttemptState - lastCleanupAttemptState > SKIP_CLEANUP_STATE_CHANGES &&
-            this.latestClusterName != null && this.latestClusterUUID != null
-        ) {
+        if (cleanUpAttemptState - lastCleanupAttemptState > SKIP_CLEANUP_STATE_CHANGES
+            && this.latestClusterName != null
+            && this.latestClusterUUID != null) {
             logger.info(
                 "Cleaning up stale remote state files for cluster [{}] with uuid [{}]. Last clean was done before {} updates",
                 this.latestClusterName,
@@ -588,6 +644,9 @@ public class RemoteClusterStateService implements Closeable {
             previousManifest.getSettingsMetadata(),
             previousManifest.getTemplatesMetadata(),
             previousManifest.getCustomMetadataMap(),
+            previousManifest.getDiscoveryNodesMetadata(),
+            previousManifest.getClusterBlocksMetadata(),
+            previousManifest.getDiffManifest(),
             true
         );
         deleteStaleClusterUUIDs(clusterState, committedManifest);
@@ -626,6 +685,7 @@ public class RemoteClusterStateService implements Closeable {
         blobStoreRepository = (BlobStoreRepository) repository;
         remoteGlobalMetadataManager = new RemoteGlobalMetadataManager(blobStoreRepository, clusterSettings);
         remoteIndexMetadataManager = new RemoteIndexMetadataManager(blobStoreRepository, clusterSettings);
+        remoteClusterStateAttributesManager = new RemoteClusterStateAttributesManager(blobStoreRepository);
         remoteManifestManager = new RemoteManifestManager(blobStoreRepository, clusterSettings, nodeId);
         if (isClusterManagerNode) {
             staleFileDeletionTask = new AsyncStaleFileDeletion(this);
@@ -1077,6 +1137,7 @@ public class RemoteClusterStateService implements Closeable {
 
     static final class AsyncStaleFileDeletion extends AbstractAsyncTask {
         private final RemoteClusterStateService remoteClusterStateService;
+
         AsyncStaleFileDeletion(RemoteClusterStateService remoteClusterStateService) {
             super(logger, remoteClusterStateService.threadpool, remoteClusterStateService.getStaleFileCleanupInterval(), true);
             this.remoteClusterStateService = remoteClusterStateService;

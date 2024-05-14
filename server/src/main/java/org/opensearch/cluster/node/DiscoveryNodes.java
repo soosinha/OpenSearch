@@ -48,6 +48,7 @@ import org.opensearch.core.common.transport.TransportAddress;
 import org.opensearch.core.xcontent.ToXContentFragment;
 import org.opensearch.core.xcontent.XContentBuilder;
 import org.opensearch.core.xcontent.XContentParser;
+import org.opensearch.core.xcontent.XContentParserUtils;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -595,9 +596,7 @@ public class DiscoveryNodes extends AbstractDiffable<DiscoveryNodes> implements 
         if (parser.currentToken() == XContentParser.Token.START_OBJECT) {
             parser.nextToken();
         }
-        if (parser.currentToken() != XContentParser.Token.FIELD_NAME) {
-            throw new IllegalArgumentException("expected field name but got a " + parser.currentToken());
-        }
+        XContentParserUtils.ensureExpectedToken(XContentParser.Token.FIELD_NAME, parser.currentToken(), parser);
         XContentParser.Token token;
         String currentFieldName = parser.currentName();
         while ((token = parser.nextToken()) != XContentParser.Token.END_OBJECT) {

@@ -9,6 +9,9 @@
 package org.opensearch.gateway.remote;
 
 import org.opensearch.Version;
+import org.opensearch.cluster.ClusterState;
+import org.opensearch.cluster.metadata.IndexMetadata;
+import org.opensearch.cluster.metadata.Metadata;
 import org.opensearch.core.ParseField;
 import org.opensearch.core.common.Strings;
 import org.opensearch.core.common.io.stream.StreamInput;
@@ -18,6 +21,7 @@ import org.opensearch.core.xcontent.ConstructingObjectParser;
 import org.opensearch.core.xcontent.MediaTypeRegistry;
 import org.opensearch.core.xcontent.ObjectParser;
 import org.opensearch.core.xcontent.ToXContentFragment;
+import org.opensearch.core.xcontent.ToXContentObject;
 import org.opensearch.core.xcontent.XContentBuilder;
 import org.opensearch.core.xcontent.XContentParser;
 
@@ -41,6 +45,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
     public static final int CODEC_V0 = 0; // Older codec version, where we haven't introduced codec versions for manifest.
     public static final int CODEC_V1 = 1; // In Codec V1 we have introduced global-metadata and codec version in Manifest file.
     public static final int CODEC_V2 = 2; // In Codec V2, there are seperate metadata files rather than a single global metadata file.
+    public static final int CODEC_V3 = 3; // In Codec V3, we introduced diff as part of manifest.
 
     private static final ParseField CLUSTER_TERM_FIELD = new ParseField("cluster_term");
     private static final ParseField STATE_VERSION_FIELD = new ParseField("state_version");
@@ -58,6 +63,9 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
     private static final ParseField UPLOADED_SETTINGS_METADATA = new ParseField("uploaded_settings_metadata");
     private static final ParseField UPLOADED_TEMPLATES_METADATA = new ParseField("uploaded_templates_metadata");
     private static final ParseField UPLOADED_CUSTOM_METADATA = new ParseField("uploaded_custom_metadata");
+    private static final ParseField UPLOADED_DISCOVERY_NODES_METADATA = new ParseField("uploaded_discovery_nodes_metadata");
+    private static final ParseField UPLOADED_CLUSTER_BLOCKS_METADATA = new ParseField("uploaded_cluster_blocks_metadata");
+    private static final ParseField DIFF_MANIFEST = new ParseField("diff_manifest");
 
     private static long term(Object[] fields) {
         return (long) fields[0];
@@ -237,6 +245,8 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
     private final UploadedMetadataAttribute uploadedCoordinationMetadata;
     private final UploadedMetadataAttribute uploadedSettingsMetadata;
     private final UploadedMetadataAttribute uploadedTemplatesMetadata;
+    private final UploadedMetadataAttribute uploadedDiscoveryNodesMetadata;
+    private final UploadedMetadataAttribute uploadedClusterBlocksMetadata;
     private final Map<String, UploadedMetadataAttribute> uploadedCustomMetadataMap;
     private final List<UploadedIndexMetadata> indices;
     private final long clusterTerm;
@@ -248,6 +258,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
     private final boolean committed;
     private final String previousClusterUUID;
     private final boolean clusterUUIDCommitted;
+    private final ClusterDiffManifest diffManifest;
 
     public List<UploadedIndexMetadata> getIndices() {
         return indices;
@@ -309,6 +320,18 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         return uploadedTemplatesMetadata;
     }
 
+    public UploadedMetadataAttribute getDiscoveryNodesMetadata() {
+        return uploadedDiscoveryNodesMetadata;
+    }
+
+    public UploadedMetadataAttribute getClusterBlocksMetadata() {
+        return uploadedClusterBlocksMetadata;
+    }
+
+    public ClusterDiffManifest getDiffManifest() {
+        return diffManifest;
+    }
+
     public Map<String, UploadedMetadataAttribute> getCustomMetadataMap() {
         return uploadedCustomMetadataMap;
     }
@@ -336,7 +359,10 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         UploadedMetadataAttribute uploadedCoordinationMetadata,
         UploadedMetadataAttribute uploadedSettingsMetadata,
         UploadedMetadataAttribute uploadedTemplatesMetadata,
-        Map<String, UploadedMetadataAttribute> uploadedCustomMetadataMap
+        Map<String, UploadedMetadataAttribute> uploadedCustomMetadataMap,
+        UploadedMetadataAttribute discoveryNodesMetadata,
+        UploadedMetadataAttribute clusterBlocksMetadata,
+        ClusterDiffManifest diffManifest
     ) {
         this.clusterTerm = clusterTerm;
         this.stateVersion = version;
@@ -356,6 +382,9 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         this.uploadedCustomMetadataMap = Collections.unmodifiableMap(
             uploadedCustomMetadataMap != null ? uploadedCustomMetadataMap : new HashMap<>()
         );
+        this.uploadedDiscoveryNodesMetadata = discoveryNodesMetadata;
+        this.uploadedClusterBlocksMetadata = clusterBlocksMetadata;
+        this.diffManifest = diffManifest;
     }
 
     public ClusterMetadataManifest(StreamInput in) throws IOException {
@@ -378,6 +407,10 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                 in.readMap(StreamInput::readString, UploadedMetadataAttribute::new)
             );
             this.globalMetadataFileName = null;
+            // ToDo: change the version check and initialize these
+            this.uploadedDiscoveryNodesMetadata = null;
+            this.uploadedClusterBlocksMetadata = null;
+            this.diffManifest = null;
         } else if (in.getVersion().onOrAfter(Version.V_2_12_0)) {
             this.codecVersion = in.readInt();
             this.globalMetadataFileName = in.readString();
@@ -385,6 +418,9 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             this.uploadedSettingsMetadata = null;
             this.uploadedTemplatesMetadata = null;
             this.uploadedCustomMetadataMap = null;
+            this.uploadedDiscoveryNodesMetadata = null;
+            this.uploadedClusterBlocksMetadata = null;
+            this.diffManifest = null;
         } else {
             this.codecVersion = CODEC_V0; // Default codec
             this.globalMetadataFileName = null;
@@ -392,6 +428,9 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             this.uploadedSettingsMetadata = null;
             this.uploadedTemplatesMetadata = null;
             this.uploadedCustomMetadataMap = null;
+            this.uploadedDiscoveryNodesMetadata = null;
+            this.uploadedClusterBlocksMetadata = null;
+            this.diffManifest = null;
         }
     }
 
@@ -438,11 +477,27 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                 getTemplatesMetadata().toXContent(builder, params);
                 builder.endObject();
             }
+            if (getDiscoveryNodesMetadata() != null) {
+                builder.startObject(UPLOADED_DISCOVERY_NODES_METADATA.getPreferredName());
+                getDiscoveryNodesMetadata().toXContent(builder, params);
+                builder.endObject();
+            }
+            if (getClusterBlocksMetadata() != null) {
+                builder.startObject(UPLOADED_CLUSTER_BLOCKS_METADATA.getPreferredName());
+                getClusterBlocksMetadata().toXContent(builder, params);
+                builder.endObject();
+            }
+            if (getDiffManifest() != null) {
+                builder.startObject(DIFF_MANIFEST.getPreferredName());
+                getDiffManifest().toXContent(builder, params);
+                builder.endObject();
+            }
             builder.startObject(UPLOADED_CUSTOM_METADATA.getPreferredName());
             for (UploadedMetadataAttribute attribute : getCustomMetadataMap().values()) {
                 attribute.toXContent(builder, params);
             }
             builder.endObject();
+            diffManifest.toXContent(builder, params);
         } else if (onOrAfterCodecVersion(CODEC_V1)) {
             builder.field(CODEC_VERSION_FIELD.getPreferredName(), getCodecVersion());
             builder.field(GLOBAL_METADATA_FIELD.getPreferredName(), getGlobalMetadataFileName());
@@ -544,6 +599,8 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
     public static class Builder {
 
         private String globalMetadataFileName;
+        private UploadedMetadataAttribute discoveryNodesMetadata;
+        private UploadedMetadataAttribute clusterBlocksMetadata;
         private UploadedMetadataAttribute coordinationMetadata;
         private UploadedMetadataAttribute settingsMetadata;
         private UploadedMetadataAttribute templatesMetadata;
@@ -559,6 +616,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         private String previousClusterUUID;
         private boolean committed;
         private boolean clusterUUIDCommitted;
+        private ClusterDiffManifest diffManifest;
 
         public Builder indices(List<UploadedIndexMetadata> indices) {
             this.indices = indices;
@@ -649,6 +707,26 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             return this;
         }
 
+        public Builder diffManifest(ClusterDiffManifest diffManifest) {
+            this.diffManifest = diffManifest;
+            return this;
+        }
+
+        public Builder discoveryNodesMetadata(UploadedMetadataAttribute discoveryNodesMetadata) {
+            this.discoveryNodesMetadata = discoveryNodesMetadata;
+            return this;
+        }
+
+        public Builder clusterBlocksMetadata(UploadedMetadataAttribute clusterBlocksMetadata) {
+            this.clusterBlocksMetadata = clusterBlocksMetadata;
+            return this;
+        }
+
+        public Builder diffManifest(ClusterDiffManifest diffManifest) {
+            this.diffManifest = diffManifest;
+            return this;
+        }
+
         public Builder() {
             indices = new ArrayList<>();
             customMetadataMap = new HashMap<>();
@@ -671,6 +749,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             this.indices = new ArrayList<>(manifest.indices);
             this.previousClusterUUID = manifest.previousClusterUUID;
             this.clusterUUIDCommitted = manifest.clusterUUIDCommitted;
+            this.diffManifest = manifest.diffManifest;
         }
 
         public ClusterMetadataManifest build() {
@@ -690,7 +769,10 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                 coordinationMetadata,
                 settingsMetadata,
                 templatesMetadata,
-                customMetadataMap
+                customMetadataMap,
+                discoveryNodesMetadata,
+                clusterBlocksMetadata,
+                diffManifest
             );
         }
 
@@ -908,6 +990,96 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                 + uploadedFilename
                 + '\''
                 + '}';
+        }
+    }
+
+    public static class ClusterDiffManifest implements ToXContentObject {
+        private final String fromStateUUID;
+        private final String toStateUUID;
+        private final boolean coordinationMetadataUpdated;
+        private final boolean settingsMetadataUpdated;
+        private final boolean templatesMetadataUpdated;
+        private final Map<String, Boolean> customMetadataUpdated;
+        private final List<String> indicesUpdated;
+        private final List<String> indicesDeleted;
+        private final boolean clusterBlocksUpdated;
+        private final boolean discoveryNodesUpdated;
+
+        ClusterDiffManifest(ClusterState state, ClusterState previousState) {
+            fromStateUUID = previousState.stateUUID();
+            toStateUUID = state.stateUUID();
+            coordinationMetadataUpdated = Metadata.isCoordinationMetadataEqual(state.metadata(), previousState.metadata());
+            settingsMetadataUpdated = Metadata.isSettingsMetadataEqual(state.metadata(), previousState.metadata());
+            templatesMetadataUpdated = Metadata.isTemplatesMetadataEqual(state.metadata(), previousState.metadata());
+            indicesDeleted = findRemovedIndices(state.metadata().indices(), previousState.metadata().indices());
+            indicesUpdated = findUpdatedIndices(state.metadata().indices(), previousState.metadata().indices());
+            clusterBlocksUpdated = state.blocks().equals(previousState.blocks());
+            discoveryNodesUpdated = state.nodes().delta(previousState.nodes()).hasChanges();
+            customMetadataUpdated = new HashMap<>();
+            for (String custom : state.metadata().customs().keySet()) {
+                customMetadataUpdated.put(
+                    custom,
+                    state.metadata().customs().get(custom).equals(previousState.metadata().customs().get(custom))
+                );
+            }
+        }
+
+        @Override
+        public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
+            builder.startObject();
+            {
+                builder.field("from_state_uuid", fromStateUUID);
+                builder.field("to_state_uuid", toStateUUID);
+                builder.startObject("metadata_diff");
+                {
+                    builder.field("coordination_metadata_diff", coordinationMetadataUpdated);
+                    builder.field("settings_metadata_diff", settingsMetadataUpdated);
+                    builder.field("templates_metadata_diff", templatesMetadataUpdated);
+                    builder.startObject("indices_diff");
+                    builder.startArray("upserts");
+                    for (String index : indicesUpdated) {
+                        builder.value(index);
+                    }
+                    builder.endArray();
+                    builder.startArray("deletes");
+                    for (String index : indicesDeleted) {
+                        builder.value(index);
+                    }
+                    builder.endArray();
+                    builder.endObject();
+                    for (Map.Entry<String, Boolean> entry : customMetadataUpdated.entrySet()) {
+                        if (entry.getValue()) builder.field("customs_" + entry.getKey(), true);
+                    }
+                }
+                builder.endObject();
+                builder.field("cluster_blocks_diff", clusterBlocksUpdated);
+                builder.field("discovery_nodes_diff", discoveryNodesUpdated);
+            }
+            builder.endObject();
+            return builder;
+        }
+
+        public List<String> findRemovedIndices(Map<String, IndexMetadata> indices, Map<String, IndexMetadata> previousIndices) {
+            List<String> removedIndices = new ArrayList<>();
+            for (String index : previousIndices.keySet()) {
+                // index present in previous state but not in current
+                if (!indices.containsKey(index)) {
+                    removedIndices.add(index);
+                }
+            }
+            return removedIndices;
+        }
+
+        public List<String> findUpdatedIndices(Map<String, IndexMetadata> indices, Map<String, IndexMetadata> previousIndices) {
+            List<String> updatedIndices = new ArrayList<>();
+            for (String index : indices.keySet()) {
+                if (!previousIndices.containsKey(index)) {
+                    updatedIndices.add(index);
+                } else if (previousIndices.get(index).getVersion() != indices.get(index).getVersion()) {
+                    updatedIndices.add(index);
+                }
+            }
+            return updatedIndices;
         }
     }
 }

@@ -77,31 +77,26 @@ public class RemoteClusterStateServiceIT extends RemoteStoreBaseIntegTestCase {
             RemoteClusterStateService.class
         );
 
-        assertEquals(
-            5,
-            remoteClusterStateService.getStaleFileDeletionTask().getInterval().getMinutes()
-        );
+        assertEquals(5, remoteClusterStateService.getStaleFileDeletionTask().getInterval().getMinutes());
         assertTrue(remoteClusterStateService.getStaleFileDeletionTask().isScheduled());
 
         // now disable
-        client().admin().cluster().prepareUpdateSettings()
+        client().admin()
+            .cluster()
+            .prepareUpdateSettings()
             .setPersistentSettings(Settings.builder().put(REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING.getKey(), -1))
             .get();
 
-        assertEquals(
-            -1,
-            remoteClusterStateService.getStaleFileDeletionTask().getInterval().getMillis()
-        );
+        assertEquals(-1, remoteClusterStateService.getStaleFileDeletionTask().getInterval().getMillis());
         assertFalse(remoteClusterStateService.getStaleFileDeletionTask().isScheduled());
 
         // now set Clean up interval to 1 min
-        client().admin().cluster().prepareUpdateSettings()
+        client().admin()
+            .cluster()
+            .prepareUpdateSettings()
             .setPersistentSettings(Settings.builder().put(REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING.getKey(), "1m"))
             .get();
-        assertEquals(
-            1,
-            remoteClusterStateService.getStaleFileDeletionTask().getInterval().getMinutes()
-        );
+        assertEquals(1, remoteClusterStateService.getStaleFileDeletionTask().getInterval().getMinutes());
     }
 
     public void testRemoteCleanupOnlyAfter10Updates() throws Exception {
@@ -116,7 +111,9 @@ public class RemoteClusterStateServiceIT extends RemoteStoreBaseIntegTestCase {
         );
 
         // set cleanup interval to 1 min
-        client().admin().cluster().prepareUpdateSettings()
+        client().admin()
+            .cluster()
+            .prepareUpdateSettings()
             .setPersistentSettings(Settings.builder().put(REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING.getKey(), "1m"))
             .get();
 
@@ -136,20 +133,29 @@ public class RemoteClusterStateServiceIT extends RemoteStoreBaseIntegTestCase {
         BlobPath manifestContainerPath = baseMetadataPath.add("manifest");
 
         assertBusy(() -> {
-            assertEquals(RETAINED_MANIFESTS - 1, repository.blobStore().blobContainer(manifestContainerPath).listBlobsByPrefix("manifest").size());
+            assertEquals(
+                RETAINED_MANIFESTS - 1,
+                repository.blobStore().blobContainer(manifestContainerPath).listBlobsByPrefix("manifest").size()
+            );
         }, 1, TimeUnit.MINUTES);
 
         replicaCount = updateReplicaCountNTimes(8, replicaCount);
 
         // wait for 1 min, to ensure that clean up task ran and didn't clean up stale files because it was less than 10
         Thread.sleep(60000);
-        assertNotEquals(RETAINED_MANIFESTS - 1, repository.blobStore().blobContainer(manifestContainerPath).listBlobsByPrefix("manifest").size());
+        assertNotEquals(
+            RETAINED_MANIFESTS - 1,
+            repository.blobStore().blobContainer(manifestContainerPath).listBlobsByPrefix("manifest").size()
+        );
 
         // Do 2 more updates, now since the total successful state changes are more than 10, stale files will be cleaned up
         replicaCount = updateReplicaCountNTimes(2, replicaCount);
 
         assertBusy(() -> {
-            assertEquals(RETAINED_MANIFESTS - 1, repository.blobStore().blobContainer(manifestContainerPath).listBlobsByPrefix("manifest").size());
+            assertEquals(
+                RETAINED_MANIFESTS - 1,
+                repository.blobStore().blobContainer(manifestContainerPath).listBlobsByPrefix("manifest").size()
+            );
         }, 1, TimeUnit.MINUTES);
 
         Map<String, IndexMetadata> indexMetadataMap = remoteClusterStateService.getLatestClusterState(
@@ -299,7 +305,8 @@ public class RemoteClusterStateServiceIT extends RemoteStoreBaseIntegTestCase {
     }
 
     private int updateReplicaCountNTimes(int n, int initialCount) {
-        int newReplicaCount = randomIntBetween(0, 3);;
+        int newReplicaCount = randomIntBetween(0, 3);
+        ;
         for (int i = 0; i < n; i++) {
             while (newReplicaCount == initialCount) {
                 newReplicaCount = randomIntBetween(0, 3);

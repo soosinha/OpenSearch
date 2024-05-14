@@ -129,6 +129,9 @@ public class RemoteManifestManager {
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedSettingsMetadata,
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedTemplatesMetadata,
         Map<String, ClusterMetadataManifest.UploadedMetadataAttribute> uploadedCustomMetadataMap,
+        ClusterMetadataManifest.UploadedMetadataAttribute uploadedDiscoveryNodesMetadata,
+        ClusterMetadataManifest.UploadedMetadataAttribute uploadedClusterBlocksMetadata,
+        ClusterMetadataManifest.ClusterDiffManifest clusterDiffManifest,
         boolean committed
     ) throws IOException {
         synchronized (this) {
@@ -154,7 +157,10 @@ public class RemoteManifestManager {
                 uploadedCoordinationMetadata,
                 uploadedSettingsMetadata,
                 uploadedTemplatesMetadata,
-                uploadedCustomMetadataMap
+                uploadedCustomMetadataMap,
+                uploadedDiscoveryNodesMetadata,
+                uploadedClusterBlocksMetadata,
+                clusterDiffManifest
             );
             writeMetadataManifest(clusterState.getClusterName().value(), clusterState.metadata().clusterUUID(), manifest, manifestFileName);
             return manifest;
