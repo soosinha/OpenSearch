@@ -229,6 +229,11 @@ public class RemoteManifestManager {
         return latestManifestFileName.map(s -> fetchRemoteClusterMetadataManifest(clusterName, clusterUUID, s));
     }
 
+    public Optional<ClusterMetadataManifest> getClusterMetadataManifestByTermVersion(String clusterName, String clusterUUID, long term, long version) {
+        Optional<String> manifestFileName = getManifestFileNameByTermVersion(clusterName, clusterUUID, term, version);
+        return manifestFileName.map(s -> fetchRemoteClusterMetadataManifest(clusterName, clusterUUID, s));
+    }
+
     /**
      * Fetch ClusterMetadataManifest from remote state store
      *
@@ -315,7 +320,7 @@ public class RemoteManifestManager {
      * @param limit max no of files to fetch
      * @return all manifest file names
      */
-    private List<BlobMetadata> getManifestFileNames(String clusterName, String clusterUUID, int limit) throws IllegalStateException {
+    private List<BlobMetadata> getManifestFileNames(String clusterName, String clusterUUID, String filePrefix, int limit) throws IllegalStateException {
         try {
 
             /*
@@ -324,7 +329,7 @@ public class RemoteManifestManager {
               when sorted in LEXICOGRAPHIC order the latest uploaded manifest file comes on top.
              */
             return manifestContainer(clusterName, clusterUUID).listBlobsByPrefixInSortedOrder(
-                MANIFEST_FILE_PREFIX + DELIMITER,
+                filePrefix,
                 limit,
                 BlobContainer.BlobNameSortOrder.LEXICOGRAPHIC
             );
@@ -347,6 +352,15 @@ public class RemoteManifestManager {
         );
     }
 
+    static String getManifestFilePrefixForTermVersion(long term, long version) {
+        return String.join(
+            DELIMITER,
+            MANIFEST_FILE_PREFIX,
+            RemoteStoreUtils.invertLong(term),
+            RemoteStoreUtils.invertLong(version)
+        ) + DELIMITER;
+    }
+
     /**
      * Fetch latest ClusterMetadataManifest file from remote state store
      *
@@ -355,11 +369,21 @@ public class RemoteManifestManager {
      * @return latest ClusterMetadataManifest filename
      */
     private Optional<String> getLatestManifestFileName(String clusterName, String clusterUUID) throws IllegalStateException {
-        List<BlobMetadata> manifestFilesMetadata = getManifestFileNames(clusterName, clusterUUID, 1);
+        List<BlobMetadata> manifestFilesMetadata = getManifestFileNames(clusterName, clusterUUID, MANIFEST_FILE_PREFIX + DELIMITER, 1);
         if (manifestFilesMetadata != null && !manifestFilesMetadata.isEmpty()) {
             return Optional.of(manifestFilesMetadata.get(0).name());
         }
         logger.info("No manifest file present in remote store for cluster name: {}, cluster UUID: {}", clusterName, clusterUUID);
+        return Optional.empty();
+    }
+
+    private Optional<String> getManifestFileNameByTermVersion(String clusterName, String clusterUUID, long term, long version) throws IllegalStateException {
+        final String filePrefix = getManifestFilePrefixForTermVersion(term, version);
+        List<BlobMetadata> manifestFilesMetadata = getManifestFileNames(clusterName, clusterUUID, filePrefix, 1);
+        if (manifestFilesMetadata != null && !manifestFilesMetadata.isEmpty()) {
+            return Optional.of(manifestFilesMetadata.get(0).name());
+        }
+        logger.info("No manifest file present in remote store for cluster name: {}, cluster UUID: {}, term: {}, version: {}", clusterName, clusterUUID, term, version);
         return Optional.empty();
     }
 }
