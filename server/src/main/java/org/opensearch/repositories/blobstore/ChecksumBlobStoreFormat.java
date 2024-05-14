@@ -31,6 +31,7 @@
 
 package org.opensearch.repositories.blobstore;
 
+import java.util.concurrent.CompletableFuture;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.IndexFormatTooNewException;
@@ -117,6 +118,16 @@ public final class ChecksumBlobStoreFormat<T extends ToXContent> extends BaseBlo
     public T read(BlobContainer blobContainer, String name, NamedXContentRegistry namedXContentRegistry) throws IOException {
         String blobName = blobName(name);
         return deserialize(blobName, namedXContentRegistry, Streams.readFully(blobContainer.readBlob(blobName)));
+    }
+
+    public CompletableFuture<T> readAsync(BlobContainer blobContainer, String name, NamedXContentRegistry namedXContentRegistry) throws IOException {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return ChecksumBlobStoreFormat.this.read(blobContainer, name, namedXContentRegistry);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
     }
 
     public String blobName(String name) {
