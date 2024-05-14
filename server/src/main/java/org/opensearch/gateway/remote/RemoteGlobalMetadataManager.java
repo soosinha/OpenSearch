@@ -179,7 +179,7 @@ public class RemoteGlobalMetadataManager {
         }
     }
 
-    private CoordinationMetadata getCoordinationMetadata(String clusterName, String clusterUUID, String coordinationMetadataFileName) {
+    public CoordinationMetadata getCoordinationMetadata(String clusterName, String clusterUUID, String coordinationMetadataFileName) {
         try {
             // Fetch Coordination metadata
             if (coordinationMetadataFileName != null) {
@@ -200,7 +200,7 @@ public class RemoteGlobalMetadataManager {
         }
     }
 
-    private Settings getSettingsMetadata(String clusterName, String clusterUUID, String settingsMetadataFileName) {
+    public Settings getSettingsMetadata(String clusterName, String clusterUUID, String settingsMetadataFileName) {
         try {
             // Fetch Settings metadata
             if (settingsMetadataFileName != null) {
@@ -221,7 +221,7 @@ public class RemoteGlobalMetadataManager {
         }
     }
 
-    private TemplatesMetadata getTemplatesMetadata(String clusterName, String clusterUUID, String templatesMetadataFileName) {
+    public TemplatesMetadata getTemplatesMetadata(String clusterName, String clusterUUID, String templatesMetadataFileName) {
         try {
             // Fetch Templates metadata
             if (templatesMetadataFileName != null) {
@@ -242,7 +242,7 @@ public class RemoteGlobalMetadataManager {
         }
     }
 
-    private Metadata.Custom getCustomsMetadata(String clusterName, String clusterUUID, String customMetadataFileName, String custom) {
+    public Metadata.Custom getCustomsMetadata(String clusterName, String clusterUUID, String customMetadataFileName, String custom) {
         requireNonNull(customMetadataFileName);
         try {
             // Fetch Custom metadata

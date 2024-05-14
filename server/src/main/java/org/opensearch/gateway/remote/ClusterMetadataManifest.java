@@ -1081,5 +1081,45 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             }
             return updatedIndices;
         }
+
+        public String getFromStateUUID() {
+            return fromStateUUID;
+        }
+
+        public String getToStateUUID() {
+            return toStateUUID;
+        }
+
+        public boolean isCoordinationMetadataUpdated() {
+            return coordinationMetadataUpdated;
+        }
+
+        public boolean isSettingsMetadataUpdated() {
+            return settingsMetadataUpdated;
+        }
+
+        public boolean isTemplatesMetadataUpdated() {
+            return templatesMetadataUpdated;
+        }
+
+        public Map<String, Boolean> getCustomMetadataUpdated() {
+            return customMetadataUpdated;
+        }
+
+        public List<String> getIndicesUpdated() {
+            return indicesUpdated;
+        }
+
+        public List<String> getIndicesDeleted() {
+            return indicesDeleted;
+        }
+
+        public boolean isClusterBlocksUpdated() {
+            return clusterBlocksUpdated;
+        }
+
+        public boolean isDiscoveryNodesUpdated() {
+            return discoveryNodesUpdated;
+        }
     }
 }

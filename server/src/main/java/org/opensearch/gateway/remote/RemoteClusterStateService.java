@@ -13,8 +13,10 @@ import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.message.ParameterizedMessage;
 import org.opensearch.action.LatchedActionListener;
 import org.opensearch.cluster.ClusterState;
+import org.opensearch.cluster.coordination.CoordinationMetadata;
 import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.cluster.metadata.Metadata;
+import org.opensearch.cluster.metadata.TemplatesMetadata;
 import org.opensearch.cluster.node.DiscoveryNode;
 import org.opensearch.common.CheckedRunnable;
 import org.opensearch.common.Nullable;
@@ -29,6 +31,7 @@ import org.opensearch.common.unit.TimeValue;
 import org.opensearch.common.util.concurrent.AbstractAsyncTask;
 import org.opensearch.common.util.io.IOUtils;
 import org.opensearch.core.action.ActionListener;
+import org.opensearch.gateway.remote.ClusterMetadataManifest.ClusterDiffManifest;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedIndexMetadata;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadataAttribute;
 import org.opensearch.index.translog.transfer.BlobStoreTransferService;
@@ -664,6 +667,10 @@ public class RemoteClusterStateService implements Closeable {
         return remoteManifestManager.getLatestClusterMetadataManifest(clusterName, clusterUUID);
     }
 
+    public Optional<ClusterMetadataManifest> getClusterMetadataManifestByTermVersion(String clusterName, String clusterUUID, long term, long version) {
+        return remoteManifestManager.getClusterMetadataManifestByTermVersion(clusterName, clusterUUID, term, version);
+    }
+
     @Override
     public void close() throws IOException {
         if (staleFileDeletionTask != null) {
@@ -728,23 +735,63 @@ public class RemoteClusterStateService implements Closeable {
             );
         }
 
+        return getClusterStateForManifest(clusterName, clusterMetadataManifest.get());
+    }
+
+    public ClusterState getClusterStateForManifest(String clusterName, ClusterMetadataManifest manifest) {
+        // todo make this async
         // Fetch Global Metadata
-        Metadata globalMetadata = remoteGlobalMetadataManager.getGlobalMetadata(clusterName, clusterUUID, clusterMetadataManifest.get());
+        Metadata globalMetadata = remoteGlobalMetadataManager.getGlobalMetadata(clusterName, manifest.getClusterUUID(), manifest);
 
         // Fetch Index Metadata
         Map<String, IndexMetadata> indices = remoteIndexMetadataManager.getIndexMetadataMap(
             clusterName,
-            clusterUUID,
-            clusterMetadataManifest.get()
+            manifest.getClusterUUID(),
+            manifest
         );
 
         Map<String, IndexMetadata> indexMetadataMap = new HashMap<>();
         indices.values().forEach(indexMetadata -> { indexMetadataMap.put(indexMetadata.getIndex().getName(), indexMetadata); });
 
         return ClusterState.builder(ClusterState.EMPTY_STATE)
-            .version(clusterMetadataManifest.get().getStateVersion())
+            .version(manifest.getStateVersion())
             .metadata(Metadata.builder(globalMetadata).indices(indexMetadataMap).build())
             .build();
+    }
+
+    public ClusterState getClusterStateUsingDiff(String clusterName, ClusterMetadataManifest manifest, ClusterState previousState) {
+        assert manifest.getDiffManifest() != null;
+        ClusterDiffManifest diff = manifest.getDiffManifest();
+        ClusterState.Builder clusterStateBuilder = ClusterState.builder(previousState);
+        Metadata.Builder metadataBuilder = Metadata.builder(previousState.metadata());
+
+        for (String index:diff.getIndicesUpdated()) {
+            //todo optimize below iteration
+            Optional<UploadedIndexMetadata> uploadedIndexMetadataOptional = manifest.getIndices().stream().filter(idx -> idx.getIndexName().equals(index)).findFirst();
+            assert uploadedIndexMetadataOptional.isPresent() == true;
+            IndexMetadata indexMetadata = remoteIndexMetadataManager.getIndexMetadata(clusterName, manifest.getClusterUUID(), uploadedIndexMetadataOptional.get());
+            metadataBuilder.put(indexMetadata, false);
+        }
+        for (String index:diff.getIndicesDeleted()) {
+            metadataBuilder.remove(index);
+        }
+        if (diff.isCoordinationMetadataUpdated()) {
+            CoordinationMetadata coordinationMetadata = remoteGlobalMetadataManager.getCoordinationMetadata(clusterName, manifest.getClusterUUID(), manifest.getCoordinationMetadata().getUploadedFilename());
+            metadataBuilder.coordinationMetadata(coordinationMetadata);
+        }
+        if (diff.isSettingsMetadataUpdated()) {
+            Settings settings = remoteGlobalMetadataManager.getSettingsMetadata(clusterName, manifest.getClusterUUID(), manifest.getSettingsMetadata().getUploadedFilename());
+            metadataBuilder.persistentSettings(settings);
+        }
+        if (diff.isTemplatesMetadataUpdated()) {
+            TemplatesMetadata templatesMetadata = remoteGlobalMetadataManager.getTemplatesMetadata(clusterName, manifest.getClusterUUID(), manifest.getTemplatesMetadata().getUploadedFilename());
+            metadataBuilder.templates(templatesMetadata);
+        }
+        for (String customType : diff.getCustomMetadataUpdated().keySet()) {
+            Metadata.Custom custom = remoteGlobalMetadataManager.getCustomsMetadata(clusterName, manifest.getClusterUUID(), manifest.getCustomMetadataMap().get(customType).getUploadedFilename(), customType);
+            metadataBuilder.putCustom(customType, custom);
+        }
+        return clusterStateBuilder.metadata(metadataBuilder).build();
     }
 
     /**
