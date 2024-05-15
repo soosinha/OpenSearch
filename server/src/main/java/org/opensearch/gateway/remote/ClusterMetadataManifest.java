@@ -132,6 +132,18 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         return customs.stream().collect(Collectors.toMap(UploadedMetadataAttribute::getAttributeName, Function.identity()));
     }
 
+    private static UploadedMetadataAttribute discoveryNodesMetadata(Object[] fields) {
+        return (UploadedMetadataAttribute) fields[15];
+    }
+
+    private static UploadedMetadataAttribute clusterBlocksMetadata(Object[] fields) {
+        return (UploadedMetadataAttribute) fields[16];
+    }
+
+    private static ClusterDiffManifest diffManifest(Object[] fields) {
+        return (ClusterDiffManifest) fields[17];
+    }
+
     private static final ConstructingObjectParser<ClusterMetadataManifest, Void> PARSER_V0 = new ConstructingObjectParser<>(
         "cluster_metadata_manifest",
         fields -> ClusterMetadataManifest.builder()
@@ -188,12 +200,37 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             .build()
     );
 
-    private static final ConstructingObjectParser<ClusterMetadataManifest, Void> CURRENT_PARSER = PARSER_V2;
+    private static final ConstructingObjectParser<ClusterMetadataManifest, Void> PARSER_V3 = new ConstructingObjectParser<>(
+        "cluster_metadata_manifest",
+        fields -> ClusterMetadataManifest.builder()
+            .clusterTerm(term(fields))
+            .stateVersion(version(fields))
+            .clusterUUID(clusterUUID(fields))
+            .stateUUID(stateUUID(fields))
+            .opensearchVersion(opensearchVersion(fields))
+            .nodeId(nodeId(fields))
+            .committed(committed(fields))
+            .codecVersion(codecVersion(fields))
+            .indices(indices(fields))
+            .previousClusterUUID(previousClusterUUID(fields))
+            .clusterUUIDCommitted(clusterUUIDCommitted(fields))
+            .coordinationMetadata(coordinationMetadata(fields))
+            .settingMetadata(settingsMetadata(fields))
+            .templatesMetadata(templatesMetadata(fields))
+            .customMetadataMap(customMetadata(fields))
+            .discoveryNodesMetadata(discoveryNodesMetadata(fields))
+            .clusterBlocksMetadata(clusterBlocksMetadata(fields))
+            .diffManifest(diffManifest(fields))
+            .build()
+    );
+
+    private static final ConstructingObjectParser<ClusterMetadataManifest, Void> CURRENT_PARSER = PARSER_V3;
 
     static {
         declareParser(PARSER_V0, CODEC_V0);
         declareParser(PARSER_V1, CODEC_V1);
         declareParser(PARSER_V2, CODEC_V2);
+        declareParser(PARSER_V3, CODEC_V3);
     }
 
     private static void declareParser(ConstructingObjectParser<ClusterMetadataManifest, Void> parser, long codec_version) {
@@ -237,6 +274,9 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                 UploadedMetadataAttribute.PARSER,
                 UPLOADED_CUSTOM_METADATA
             );
+        }
+        if (codec_version >= CODEC_V3) {
+            parser.declareNamedObject(ConstructingObjectParser.constructorArg(), ClusterDiffManifest.PARSER, DIFF_MANIFEST);
         }
     }
 
@@ -707,11 +747,6 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             return this;
         }
 
-        public Builder diffManifest(ClusterDiffManifest diffManifest) {
-            this.diffManifest = diffManifest;
-            return this;
-        }
-
         public Builder discoveryNodesMetadata(UploadedMetadataAttribute discoveryNodesMetadata) {
             this.discoveryNodesMetadata = discoveryNodesMetadata;
             return this;
@@ -994,6 +1029,46 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
     }
 
     public static class ClusterDiffManifest implements ToXContentObject {
+        private static final ParseField FROM_STATE_UUID_FIELD = new ParseField("from_state_uuid");
+        private static final ParseField TO_STATE_UUID_FIELD = new ParseField("to_state_uuid");
+        private static final ParseField METADATA_DIFF_FIELD = new ParseField("metadata_diff");
+        private static final ParseField COORDINATION_METADATA_UPDATED_FIELD = new ParseField(
+            "coordination_metadata_diff"
+        );
+        private static final ParseField SETTINGS_METADATA_UPDATED_FIELD = new ParseField("settings_metadata_diff");
+        private static final ParseField TEMPLATES_METADATA_UPDATED_FIELD = new ParseField("templates_metadata_diff");
+        private static final ParseField INDICES_DIFF_FIELD = new ParseField("indices_diff");
+        private static final ParseField UPSERTS_FIELD = new ParseField("upserts");
+        private static final ParseField DELETES_FIELD = new ParseField("deletes");
+        private static final ParseField CLUSTER_BLOCKS_UPDATED_FIELD = new ParseField("cluster_blocks_diff");
+        private static final ParseField DISCOVERY_NODES_UPDATED_FIELD = new ParseField("discovery_nodes_diff");
+        private static final ObjectParser.NamedObjectParser<ClusterDiffManifest, Void> PARSER;
+        static {
+            ConstructingObjectParser<ClusterDiffManifest, Void> innerParser = new ConstructingObjectParser<ClusterDiffManifest, Void>(
+                "cluster_diff_manifest",
+                fields -> ClusterDiffManifest.builder()
+                    .fromStateUUID((String) fields[0])
+                    .toStateUUID((String) fields[1])
+                    .coordinationMetadataUpdated((Boolean) fields[2])
+                    .settingsMetadataUpdated((Boolean) fields[3])
+                    .templatesMetadataUpdated((Boolean) fields[4])
+                    .indicesUpdated((List<String>) fields[5])
+                    .indicesDeleted((List<String>) fields[6])
+                    .clusterBlocksUpdated((Boolean) fields[7])
+                    .discoveryNodesUpdated((Boolean) fields[8])
+                    .build()
+            );
+            innerParser.declareString(ConstructingObjectParser.constructorArg(), FROM_STATE_UUID_FIELD);
+            innerParser.declareString(ConstructingObjectParser.constructorArg(), TO_STATE_UUID_FIELD);
+            innerParser.declareBoolean(ConstructingObjectParser.constructorArg(), COORDINATION_METADATA_UPDATED_FIELD);
+            innerParser.declareBoolean(ConstructingObjectParser.constructorArg(), SETTINGS_METADATA_UPDATED_FIELD);
+            innerParser.declareBoolean(ConstructingObjectParser.constructorArg(), TEMPLATES_METADATA_UPDATED_FIELD);
+            innerParser.declareStringArray(ConstructingObjectParser.constructorArg(), UPSERTS_FIELD);
+            innerParser.declareStringArray(ConstructingObjectParser.constructorArg(), DELETES_FIELD);
+            innerParser.declareBoolean(ConstructingObjectParser.constructorArg(), DISCOVERY_NODES_UPDATED_FIELD);
+            innerParser.declareBoolean(ConstructingObjectParser.constructorArg(), CLUSTER_BLOCKS_UPDATED_FIELD);
+            PARSER = ((p, c, name) -> innerParser.parse(p, null));
+        }
         private final String fromStateUUID;
         private final String toStateUUID;
         private final boolean coordinationMetadataUpdated;
@@ -1024,39 +1099,57 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             }
         }
 
+        public ClusterDiffManifest(String fromStateUUID, String toStateUUID, boolean coordinationMetadataUpdated, boolean settingsMetadataUpdated, boolean templatesMetadataUpdated, Map<String, Boolean> customMetadataUpdated, List<String> indicesUpdated, List<String> indicesDeleted, boolean clusterBlocksUpdated, boolean discoveryNodesUpdated) {
+            this.fromStateUUID = fromStateUUID;
+            this.toStateUUID = toStateUUID;
+            this.coordinationMetadataUpdated = coordinationMetadataUpdated;
+            this.settingsMetadataUpdated = settingsMetadataUpdated;
+            this.templatesMetadataUpdated = templatesMetadataUpdated;
+            this.customMetadataUpdated = customMetadataUpdated;
+            this.indicesUpdated = indicesUpdated;
+            this.indicesDeleted = indicesDeleted;
+            this.clusterBlocksUpdated = clusterBlocksUpdated;
+            this.discoveryNodesUpdated = discoveryNodesUpdated;
+        }
+
         @Override
         public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
             builder.startObject();
             {
-                builder.field("from_state_uuid", fromStateUUID);
-                builder.field("to_state_uuid", toStateUUID);
-                builder.startObject("metadata_diff");
+                builder.field(FROM_STATE_UUID_FIELD.getPreferredName(), fromStateUUID);
+                builder.field(TO_STATE_UUID_FIELD.getPreferredName(), toStateUUID);
+                builder.startObject(METADATA_DIFF_FIELD.getPreferredName());
                 {
-                    builder.field("coordination_metadata_diff", coordinationMetadataUpdated);
-                    builder.field("settings_metadata_diff", settingsMetadataUpdated);
-                    builder.field("templates_metadata_diff", templatesMetadataUpdated);
-                    builder.startObject("indices_diff");
-                    builder.startArray("upserts");
+                    builder.field(COORDINATION_METADATA_UPDATED_FIELD.getPreferredName(), coordinationMetadataUpdated);
+                    builder.field(SETTINGS_METADATA_UPDATED_FIELD.getPreferredName(), settingsMetadataUpdated);
+                    builder.field(TEMPLATES_METADATA_UPDATED_FIELD.getPreferredName(), templatesMetadataUpdated);
+                    builder.startObject(INDICES_DIFF_FIELD.getPreferredName());
+                    builder.startArray(UPSERTS_FIELD.getPreferredName());
                     for (String index : indicesUpdated) {
                         builder.value(index);
                     }
                     builder.endArray();
-                    builder.startArray("deletes");
+                    builder.startArray(DELETES_FIELD.getPreferredName());
                     for (String index : indicesDeleted) {
                         builder.value(index);
                     }
                     builder.endArray();
                     builder.endObject();
-                    for (Map.Entry<String, Boolean> entry : customMetadataUpdated.entrySet()) {
-                        if (entry.getValue()) builder.field("customs_" + entry.getKey(), true);
-                    }
+                    // ToDo: add the custom metadata diff when we add a parser for this
+//                    for (Map.Entry<String, Boolean> entry : customMetadataUpdated.entrySet()) {
+//                        if (entry.getValue()) builder.field("customs_" + entry.getKey(), true);
+//                    }
                 }
                 builder.endObject();
-                builder.field("cluster_blocks_diff", clusterBlocksUpdated);
-                builder.field("discovery_nodes_diff", discoveryNodesUpdated);
+                builder.field(CLUSTER_BLOCKS_UPDATED_FIELD.getPreferredName(), clusterBlocksUpdated);
+                builder.field(DISCOVERY_NODES_UPDATED_FIELD.getPreferredName(), discoveryNodesUpdated);
             }
             builder.endObject();
             return builder;
+        }
+
+        public static ClusterDiffManifest fromXContent(XContentParser parser) throws IOException {
+            return PARSER.parse(parser, null, null);
         }
 
         public List<String> findRemovedIndices(Map<String, IndexMetadata> indices, Map<String, IndexMetadata> previousIndices) {
@@ -1120,6 +1213,89 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
 
         public boolean isDiscoveryNodesUpdated() {
             return discoveryNodesUpdated;
+        }
+
+        public static ClusterDiffManifest.Builder builder() {
+            return new Builder();
+        }
+
+        public static class Builder {
+            private String fromStateUUID;
+            private String toStateUUID;
+            private boolean coordinationMetadataUpdated;
+            private boolean settingsMetadataUpdated;
+            private boolean templatesMetadataUpdated;
+            private Map<String, Boolean> customMetadataUpdated;
+            private List<String> indicesUpdated;
+            private List<String> indicesDeleted;
+            private boolean clusterBlocksUpdated;
+            private boolean discoveryNodesUpdated;
+            public Builder() {}
+
+            public Builder fromStateUUID(String fromStateUUID) {
+                this.fromStateUUID = fromStateUUID;
+                return this;
+            }
+
+            public Builder toStateUUID(String toStateUUID) {
+                this.toStateUUID = toStateUUID;
+                return this;
+            }
+
+            public Builder coordinationMetadataUpdated(boolean coordinationMetadataUpdated) {
+                this.coordinationMetadataUpdated = coordinationMetadataUpdated;
+                return this;
+            }
+
+            public Builder settingsMetadataUpdated(boolean settingsMetadataUpdated) {
+                this.settingsMetadataUpdated = settingsMetadataUpdated;
+                return this;
+            }
+
+            public Builder templatesMetadataUpdated(boolean templatesMetadataUpdated) {
+                this.templatesMetadataUpdated = templatesMetadataUpdated;
+                return this;
+            }
+
+            public Builder customMetadataUpdated(Map<String, Boolean> customMetadataUpdated) {
+                this.customMetadataUpdated = customMetadataUpdated;
+                return this;
+            }
+
+            public Builder indicesUpdated(List<String> indicesUpdated) {
+                this.indicesUpdated = indicesUpdated;
+                return this;
+            }
+
+            public Builder indicesDeleted(List<String> indicesDeleted) {
+                this.indicesDeleted = indicesDeleted;
+                return this;
+            }
+
+            public Builder clusterBlocksUpdated(boolean clusterBlocksUpdated) {
+                this.clusterBlocksUpdated = clusterBlocksUpdated;
+                return this;
+            }
+
+            public Builder discoveryNodesUpdated(boolean discoveryNodesUpdated) {
+                this.discoveryNodesUpdated = discoveryNodesUpdated;
+                return this;
+            }
+
+            public ClusterDiffManifest build() {
+                return new ClusterDiffManifest(
+                    fromStateUUID,
+                    toStateUUID,
+                    coordinationMetadataUpdated,
+                    settingsMetadataUpdated,
+                    templatesMetadataUpdated,
+                    customMetadataUpdated,
+                    indicesUpdated,
+                    indicesDeleted,
+                    clusterBlocksUpdated,
+                    discoveryNodesUpdated
+                );
+            }
         }
     }
 }

@@ -32,7 +32,6 @@
 
 package org.opensearch.cluster;
 
-import org.elasticsearch.snapshots.SnapshotId;
 import org.opensearch.Version;
 import org.opensearch.cluster.ClusterState.Custom;
 import org.opensearch.cluster.metadata.Metadata;
