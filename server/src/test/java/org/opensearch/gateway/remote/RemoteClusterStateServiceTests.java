@@ -19,6 +19,7 @@ import org.opensearch.cluster.metadata.IndexTemplateMetadata;
 import org.opensearch.cluster.metadata.Metadata;
 import org.opensearch.cluster.metadata.TemplatesMetadata;
 import org.opensearch.cluster.node.DiscoveryNodes;
+import org.opensearch.cluster.routing.remote.RemoteRoutingTableService;
 import org.opensearch.common.blobstore.AsyncMultiStreamBlobContainer;
 import org.opensearch.common.blobstore.BlobContainer;
 import org.opensearch.common.blobstore.BlobMetadata;
@@ -33,6 +34,7 @@ import org.opensearch.common.lucene.store.ByteArrayIndexInput;
 import org.opensearch.common.network.NetworkModule;
 import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.Settings;
+import org.opensearch.common.util.FeatureFlags;
 import org.opensearch.common.util.concurrent.AbstractAsyncTask;
 import org.opensearch.core.ParseField;
 import org.opensearch.core.action.ActionListener;
@@ -42,6 +44,8 @@ import org.opensearch.core.index.Index;
 import org.opensearch.core.xcontent.NamedXContentRegistry;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedIndexMetadata;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadataAttribute;
+import org.opensearch.index.remote.RemoteIndexPathUploader;
+import org.opensearch.index.remote.RemoteStoreUtils;
 import org.opensearch.indices.IndicesModule;
 import org.opensearch.repositories.FilterRepository;
 import org.opensearch.repositories.RepositoriesService;
@@ -85,6 +89,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 
 import static java.util.stream.Collectors.toList;
+import static org.opensearch.common.util.FeatureFlags.REMOTE_ROUTING_TABLE_EXPERIMENTAL;
 import static org.opensearch.gateway.remote.RemoteClusterStateService.REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING;
 import static org.opensearch.gateway.remote.RemoteClusterStateService.RETAINED_MANIFESTS;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
@@ -112,6 +117,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.*;
 
 public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
 
@@ -186,13 +192,14 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
 
     public void testFailInitializationWhenRemoteStateDisabled() {
         final Settings settings = Settings.builder().build();
+        ClusterSettings clusterSettings = new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
         assertThrows(
             AssertionError.class,
             () -> new RemoteClusterStateService(
                 "test-node-id",
                 repositoriesServiceSupplier,
                 settings,
-                new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS),
+                clusterSettings,
                 () -> 0L,
                 threadPool
             )
@@ -800,6 +807,80 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
         });
     }
 
+    public void testIndexMetadataDeletedUpdatedAndAdded() throws IOException {
+        // setup
+        mockBlobStoreObjects();
+
+        // Initial cluster state with index.
+        final ClusterState initialClusterState = generateClusterStateWithOneIndex().nodes(nodesWithLocalNodeClusterManager()).build();
+        remoteClusterStateService.start();
+        final ClusterMetadataManifest initialManifest = remoteClusterStateService.writeFullMetadata(initialClusterState, "_na_");
+        String initialIndex = "test-index";
+        Index index1 = new Index("test-index-1", "index-uuid-1");
+        Index index2 = new Index("test-index-2", "index-uuid-2");
+        Settings idxSettings1 = Settings.builder()
+            .put(IndexMetadata.SETTING_VERSION_CREATED, Version.CURRENT)
+            .put(IndexMetadata.SETTING_INDEX_UUID, index1.getUUID())
+            .build();
+        IndexMetadata indexMetadata1 = new IndexMetadata.Builder(index1.getName()).settings(idxSettings1)
+            .numberOfShards(1)
+            .numberOfReplicas(0)
+            .build();
+        Settings idxSettings2 = Settings.builder()
+            .put(IndexMetadata.SETTING_VERSION_CREATED, Version.CURRENT)
+            .put(IndexMetadata.SETTING_INDEX_UUID, index2.getUUID())
+            .build();
+        IndexMetadata indexMetadata2 = new IndexMetadata.Builder(index2.getName()).settings(idxSettings2)
+            .numberOfShards(1)
+            .numberOfReplicas(0)
+            .build();
+        ClusterState clusterState1 = ClusterState.builder(initialClusterState)
+            .metadata(
+                Metadata.builder(initialClusterState.getMetadata())
+                    .put(indexMetadata1, true)
+                    .put(indexMetadata2, true)
+                    .remove(initialIndex)
+                    .build()
+            )
+            .build();
+        ClusterMetadataManifest manifest1 = remoteClusterStateService.writeIncrementalMetadata(
+            initialClusterState,
+            clusterState1,
+            initialManifest
+        );
+        // verify that initial index is removed, and new index are added
+        assertEquals(1, initialManifest.getIndices().size());
+        assertEquals(2, manifest1.getIndices().size());
+        assertTrue(initialManifest.getIndices().stream().anyMatch(indexMetadata -> indexMetadata.getIndexName().equals(initialIndex)));
+        assertFalse(manifest1.getIndices().stream().anyMatch(indexMetadata -> indexMetadata.getIndexName().equals(initialIndex)));
+        // update index1, index2 is unchanged
+        indexMetadata1 = new IndexMetadata.Builder(indexMetadata1).version(indexMetadata1.getVersion() + 1).build();
+        ClusterState clusterState2 = ClusterState.builder(clusterState1)
+            .metadata(Metadata.builder(clusterState1.getMetadata()).put(indexMetadata1, true).build())
+            .build();
+        ClusterMetadataManifest manifest2 = remoteClusterStateService.writeIncrementalMetadata(clusterState1, clusterState2, manifest1);
+        // index1 is updated
+        assertEquals(2, manifest2.getIndices().size());
+        assertEquals(
+            1,
+            manifest2.getIndices().stream().filter(uploadedIndex -> uploadedIndex.getIndexName().equals(index1.getName())).count()
+        );
+        assertNotEquals(
+            manifest2.getIndices()
+                .stream()
+                .filter(uploadedIndex -> uploadedIndex.getIndexName().equals(index1.getName()))
+                .findFirst()
+                .get()
+                .getUploadedFilename(),
+            manifest1.getIndices()
+                .stream()
+                .filter(uploadedIndex -> uploadedIndex.getIndexName().equals(index1.getName()))
+                .findFirst()
+                .get()
+                .getUploadedFilename()
+        );
+    }
+
     private void verifyMetadataAttributeOnlyUpdated(
         Function<ClusterState, ClusterState> clusterStateUpdater,
         BiConsumer<ClusterMetadataManifest, ClusterMetadataManifest> assertions
@@ -1357,6 +1438,33 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
         );
         remoteClusterStateService.start();
         assertNull(remoteClusterStateService.getStaleFileDeletionTask());
+    }
+
+    public void testRemoteRoutingTableNotInitializedWhenDisabled() {
+       assertNull(remoteClusterStateService.getRemoteRoutingTableService());
+    }
+
+    public void testRemoteRoutingTableInitializedWhenEnabled() {
+        Settings newSettings = Settings.builder()
+            .put(RemoteRoutingTableService.REMOTE_ROUTING_TABLE_ENABLED_SETTING.getKey(), true)
+            .put("node.attr." + REMOTE_STORE_ROUTING_TABLE_REPOSITORY_NAME_ATTRIBUTE_KEY, "routing_repository")
+            .put("node.attr." + REMOTE_STORE_CLUSTER_STATE_REPOSITORY_NAME_ATTRIBUTE_KEY, "remote_store_repository")
+            .put(RemoteClusterStateService.REMOTE_CLUSTER_STATE_ENABLED_SETTING.getKey(), true)
+            .build();
+        clusterSettings.applySettings(newSettings);
+
+        Settings nodeSettings = Settings.builder().put(REMOTE_ROUTING_TABLE_EXPERIMENTAL, "true").build();
+        FeatureFlags.initializeFeatureFlags(nodeSettings);
+
+        remoteClusterStateService = new RemoteClusterStateService(
+        "test-node-id",
+            repositoriesServiceSupplier,
+            newSettings,
+            clusterSettings,
+            () -> 0L,
+            threadPool
+        );
+        assertNotNull(remoteClusterStateService.getRemoteRoutingTableService());
     }
 
     private void mockObjectsForGettingPreviousClusterUUID(Map<String, String> clusterUUIDsPointers) throws IOException {

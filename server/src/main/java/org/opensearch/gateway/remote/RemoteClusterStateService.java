@@ -17,6 +17,8 @@ import org.opensearch.cluster.coordination.CoordinationMetadata;
 import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.cluster.metadata.Metadata;
 import org.opensearch.cluster.metadata.TemplatesMetadata;
+import org.opensearch.cluster.routing.remote.RemoteRoutingTableService;
+import org.opensearch.cluster.metadata.TemplatesMetadata;
 import org.opensearch.cluster.node.DiscoveryNode;
 import org.opensearch.common.CheckedRunnable;
 import org.opensearch.common.Nullable;
@@ -62,6 +64,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static org.opensearch.gateway.PersistedClusterStateService.SLOW_WRITE_LOGGING_THRESHOLD;
+import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.isRemoteRoutingTableEnabled;
 import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.CLUSTER_BLOCKS;
 import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.CLUSTER_BLOCKS_FORMAT;
 import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.DISCOVERY_NODES;
@@ -126,6 +129,7 @@ public class RemoteClusterStateService implements Closeable {
     private final ThreadPool threadpool;
     private BlobStoreRepository blobStoreRepository;
     private BlobStoreTransferService blobStoreTransferService;
+    private RemoteRoutingTableService remoteRoutingTableService;
     private volatile TimeValue slowWriteLoggingThreshold;
 
     private final AtomicBoolean deleteStaleMetadataRunning = new AtomicBoolean(false);
@@ -152,6 +156,8 @@ public class RemoteClusterStateService implements Closeable {
         ThreadPool threadPool
     ) {
         assert isRemoteStoreClusterStateEnabled(settings) : "Remote cluster state is not enabled";
+        logger.info("REMOTE STATE ENABLED");
+
         this.nodeId = nodeId;
         this.repositoriesService = repositoriesService;
         this.settings = settings;
@@ -161,6 +167,12 @@ public class RemoteClusterStateService implements Closeable {
         this.slowWriteLoggingThreshold = clusterSettings.get(SLOW_WRITE_LOGGING_THRESHOLD);
         clusterSettings.addSettingsUpdateConsumer(SLOW_WRITE_LOGGING_THRESHOLD, this::setSlowWriteLoggingThreshold);
         this.remoteStateStats = new RemotePersistenceStats();
+
+        if(isRemoteRoutingTableEnabled(settings)) {
+            this.remoteRoutingTableService = new RemoteRoutingTableService(repositoriesService,
+                settings, clusterSettings);
+            logger.info("REMOTE ROUTING ENABLED");
+        }
         this.staleFileCleanupInterval = clusterSettings.get(REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING);
         clusterSettings.addSettingsUpdateConsumer(REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING, this::updateCleanupInterval);
         this.lastCleanupAttemptState = 0;
@@ -182,11 +194,13 @@ public class RemoteClusterStateService implements Closeable {
      */
     @Nullable
     public ClusterMetadataManifest writeFullMetadata(ClusterState clusterState, String previousClusterUUID) throws IOException {
+        logger.info("WRITING FULL STATE");
         final long startTimeNanos = relativeTimeNanosSupplier.getAsLong();
         if (clusterState.nodes().isLocalNodeElectedClusterManager() == false) {
             logger.error("Local node is not elected cluster manager. Exiting");
             return null;
         }
+
 
         UploadedMetadataResults uploadedMetadataResults = writeMetadataInParallel(
             clusterState,
@@ -198,6 +212,13 @@ public class RemoteClusterStateService implements Closeable {
             true,
             true
         );
+
+        List<UploadedIndexMetadata> routingIndexMetadata = new ArrayList<>();
+        if(remoteRoutingTableService!=null) {
+            routingIndexMetadata = remoteRoutingTableService.writeFullRoutingTable(clusterState, previousClusterUUID);
+            logger.info("routingIndexMetadata {}", routingIndexMetadata);
+        }
+
         final ClusterMetadataManifest manifest = remoteManifestManager.uploadManifest(
             clusterState,
             uploadedMetadataResults.uploadedIndexMetadata,
@@ -209,8 +230,11 @@ public class RemoteClusterStateService implements Closeable {
             uploadedMetadataResults.uploadedDiscoveryNodes,
             uploadedMetadataResults.uploadedClusterBlocks,
             new ClusterMetadataManifest.ClusterDiffManifest(clusterState, ClusterState.EMPTY_STATE),
+            routingIndexMetadata,
             false
         );
+
+        logger.info("MANIFEST IN FULL STATE {}", manifest);
         final long durationMillis = TimeValue.nsecToMSec(relativeTimeNanosSupplier.getAsLong() - startTimeNanos);
         remoteStateStats.stateSucceeded();
         remoteStateStats.stateTook(durationMillis);
@@ -244,6 +268,8 @@ public class RemoteClusterStateService implements Closeable {
         ClusterState clusterState,
         ClusterMetadataManifest previousManifest
     ) throws IOException {
+        logger.info("WRITING INCREMENTAL STATE");
+
         final long startTimeNanos = relativeTimeNanosSupplier.getAsLong();
         if (clusterState.nodes().isLocalNodeElectedClusterManager() == false) {
             logger.error("Local node is not elected cluster manager. Exiting");
@@ -341,6 +367,11 @@ public class RemoteClusterStateService implements Closeable {
                 updateClusterBlocks
             );
         }
+        List<UploadedIndexMetadata> routingIndexMetadata = new ArrayList<>();
+        if(remoteRoutingTableService!=null) {
+            routingIndexMetadata = remoteRoutingTableService.writeIncrementalRoutingTable(previousClusterState, clusterState, previousManifest);
+            logger.info("routingIndexMetadata incremental {}", routingIndexMetadata);
+        }
 
         // update the map if the metadata was uploaded
         uploadedMetadataResults.uploadedIndexMetadata.forEach(
@@ -367,7 +398,7 @@ public class RemoteClusterStateService implements Closeable {
             firstUpload || updateDiscoveryNodes ? uploadedMetadataResults.uploadedDiscoveryNodes : previousManifest.getDiscoveryNodesMetadata(),
             firstUpload || updateClusterBlocks ? uploadedMetadataResults.uploadedClusterBlocks : previousManifest.getClusterBlocksMetadata(),
             new ClusterMetadataManifest.ClusterDiffManifest(clusterState, previousClusterState),
-            false
+            routingIndexMetadata, false
         );
         this.latestClusterName = clusterState.getClusterName().value();
         this.latestClusterUUID = clusterState.metadata().clusterUUID();
@@ -650,7 +681,7 @@ public class RemoteClusterStateService implements Closeable {
             previousManifest.getDiscoveryNodesMetadata(),
             previousManifest.getClusterBlocksMetadata(),
             previousManifest.getDiffManifest(),
-            true
+            previousManifest.getIndicesRouting(), true
         );
         deleteStaleClusterUUIDs(clusterState, committedManifest);
         return committedManifest;
@@ -679,6 +710,9 @@ public class RemoteClusterStateService implements Closeable {
         if (blobStoreRepository != null) {
             IOUtils.close(blobStoreRepository);
         }
+        if(this.remoteRoutingTableService != null) {
+            this.remoteRoutingTableService.close();
+        }
     }
 
     public void start() {
@@ -690,6 +724,9 @@ public class RemoteClusterStateService implements Closeable {
         final Repository repository = repositoriesService.get().repository(remoteStoreRepo);
         assert repository instanceof BlobStoreRepository : "Repository should be instance of BlobStoreRepository";
         blobStoreRepository = (BlobStoreRepository) repository;
+        if(this.remoteRoutingTableService != null) {
+            this.remoteRoutingTableService.start();
+        }
         remoteGlobalMetadataManager = new RemoteGlobalMetadataManager(blobStoreRepository, clusterSettings);
         remoteIndexMetadataManager = new RemoteIndexMetadataManager(blobStoreRepository, clusterSettings);
         remoteClusterStateAttributesManager = new RemoteClusterStateAttributesManager(blobStoreRepository);
@@ -714,6 +751,11 @@ public class RemoteClusterStateService implements Closeable {
 
     private void setSlowWriteLoggingThreshold(TimeValue slowWriteLoggingThreshold) {
         this.slowWriteLoggingThreshold = slowWriteLoggingThreshold;
+    }
+
+    //Package private for unit test
+    RemoteRoutingTableService getRemoteRoutingTableService() {
+        return this.remoteRoutingTableService;
     }
 
     /**

@@ -44,7 +44,7 @@ public class RemoteManifestManager {
     public static final String MANIFEST_PATH_TOKEN = "manifest";
     public static final String MANIFEST_FILE_PREFIX = "manifest";
     public static final String METADATA_MANIFEST_NAME_FORMAT = "%s";
-    public static final int MANIFEST_CURRENT_CODEC_VERSION = ClusterMetadataManifest.CODEC_V2;
+    public static final int MANIFEST_CURRENT_CODEC_VERSION = ClusterMetadataManifest.CODEC_V4;
     public static final int SPLITED_MANIFEST_FILE_LENGTH = 6; // file name manifest__term__version__C/P__timestamp__codecversion
 
     public static final TimeValue METADATA_MANIFEST_UPLOAD_TIMEOUT_DEFAULT = TimeValue.timeValueMillis(20000);
@@ -132,7 +132,7 @@ public class RemoteManifestManager {
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedDiscoveryNodesMetadata,
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedClusterBlocksMetadata,
         ClusterMetadataManifest.ClusterDiffManifest clusterDiffManifest,
-        boolean committed
+        List<ClusterMetadataManifest.UploadedIndexMetadata> routingIndexMetadata, boolean committed
     ) throws IOException {
         synchronized (this) {
             final String manifestFileName = getManifestFileName(
@@ -160,7 +160,9 @@ public class RemoteManifestManager {
                 uploadedCustomMetadataMap,
                 uploadedDiscoveryNodesMetadata,
                 uploadedClusterBlocksMetadata,
-                clusterDiffManifest
+                clusterDiffManifest,
+                clusterState.getRoutingTable().version(),
+                routingIndexMetadata
             );
             writeMetadataManifest(clusterState.getClusterName().value(), clusterState.metadata().clusterUUID(), manifest, manifestFileName);
             return manifest;
