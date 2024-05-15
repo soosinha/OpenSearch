@@ -198,16 +198,40 @@ public class ClusterBlockTests extends OpenSearchTestCase {
     }
 
     static String getExpectedXContentFragment(ClusterBlock clusterBlock, String indent) {
-        return indent + "\"" + clusterBlock.id() + "\" : {\n"
-            + (clusterBlock.uuid() != null ?
-            indent + "  \"uuid\" : \""+ clusterBlock.uuid() + "\",\n" : "")
-            + indent + "  \"description\" : \"" + clusterBlock.description() + "\",\n"
-            + indent + "  \"retryable\" : " + clusterBlock.retryable() + ",\n"
-            + (clusterBlock.disableStatePersistence() ?
-            indent + "  \"disable_state_persistence\" : " + clusterBlock.disableStatePersistence() + ",\n" : "")
-            + String.format(indent + "  \"levels\" : [%s]\n", clusterBlock.levels().isEmpty() ? " " :
-            "\n" + String.join(",\n", clusterBlock.levels().stream().map(level -> indent + "    \"" + level.name().toLowerCase(Locale.ROOT) + "\"").toArray(String[]::new)) + "\n  " + indent)
-            + indent + "}";
+        return indent
+            + "\""
+            + clusterBlock.id()
+            + "\" : {\n"
+            + (clusterBlock.uuid() != null ? indent + "  \"uuid\" : \"" + clusterBlock.uuid() + "\",\n" : "")
+            + indent
+            + "  \"description\" : \""
+            + clusterBlock.description()
+            + "\",\n"
+            + indent
+            + "  \"retryable\" : "
+            + clusterBlock.retryable()
+            + ",\n"
+            + (clusterBlock.disableStatePersistence()
+                ? indent + "  \"disable_state_persistence\" : " + clusterBlock.disableStatePersistence() + ",\n"
+                : "")
+            + String.format(
+                Locale.ROOT,
+                indent + "  \"levels\" : [%s]\n",
+                clusterBlock.levels().isEmpty()
+                    ? " "
+                    : "\n"
+                        + String.join(
+                            ",\n",
+                            clusterBlock.levels()
+                                .stream()
+                                .map(level -> indent + "    \"" + level.name().toLowerCase(Locale.ROOT) + "\"")
+                                .toArray(String[]::new)
+                        )
+                        + "\n  "
+                        + indent
+            )
+            + indent
+            + "}";
     }
 
     static ClusterBlock randomClusterBlock() {

@@ -41,9 +41,7 @@ import org.opensearch.core.common.io.stream.Writeable;
 import org.opensearch.core.rest.RestStatus;
 import org.opensearch.core.xcontent.ToXContentFragment;
 import org.opensearch.core.xcontent.XContentBuilder;
-import org.opensearch.core.xcontent.XContentParseException;
 import org.opensearch.core.xcontent.XContentParser;
-import org.opensearch.core.xcontent.XContentParserUtils;
 
 import java.io.IOException;
 import java.util.EnumSet;
@@ -64,7 +62,13 @@ public class ClusterBlock implements Writeable, ToXContentFragment {
     static final String KEY_RETRYABLE = "retryable";
     static final String KEY_DISABLE_STATE_PERSISTENCE = "disable_state_persistence";
     static final String KEY_LEVELS = "levels";
-    private static final Set<String> VALID_FIELDS = Sets.newHashSet(KEY_UUID, KEY_DESCRIPTION, KEY_RETRYABLE, KEY_DISABLE_STATE_PERSISTENCE, KEY_LEVELS);
+    private static final Set<String> VALID_FIELDS = Sets.newHashSet(
+        KEY_UUID,
+        KEY_DESCRIPTION,
+        KEY_RETRYABLE,
+        KEY_DISABLE_STATE_PERSISTENCE,
+        KEY_LEVELS
+    );
     private final int id;
     @Nullable
     private final String uuid;

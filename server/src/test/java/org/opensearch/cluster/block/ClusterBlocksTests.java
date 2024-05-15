@@ -22,13 +22,13 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.opensearch.cluster.block.ClusterBlockTests.getExpectedXContentFragment;
 import static org.opensearch.cluster.block.ClusterBlockTests.randomClusterBlock;
-
 
 public class ClusterBlocksTests extends OpenSearchTestCase {
     public void testToXContent() throws IOException {
@@ -40,18 +40,45 @@ public class ClusterBlocksTests extends OpenSearchTestCase {
 
         String expectedXContent = "{\n"
             + "  \"blocks\" : {\n"
-            + String.format("%s", clusterBlocks.global().isEmpty() ? "" :
-              "    \"global\" : {\n"
-                  + clusterBlocks.global().stream().map(clusterBlock -> getExpectedXContentFragment(clusterBlock, "      ")).collect(Collectors.joining(",\n"))
-                  + "\n    }" + (!clusterBlocks.indices().isEmpty() ? "," : "") + "\n")
-            + String.format("%s", clusterBlocks.indices().isEmpty() ? "" :
-              "    \"indices\" : {\n"
-                  + clusterBlocks.indices().entrySet().stream().map(entry ->
-              "      \"" + entry.getKey() + "\" : {" + (entry.getValue().isEmpty() ? " }" : "\n"
-                  + entry.getValue().stream().map(clusterBlock -> getExpectedXContentFragment(clusterBlock, "        ")).collect(Collectors.joining(",\n"))
-                  + "\n      }")
-              ).collect(Collectors.joining(",\n"))
-                  + "\n    }\n")
+            + String.format(
+                Locale.ROOT,
+                "%s",
+                clusterBlocks.global().isEmpty()
+                    ? ""
+                    : "    \"global\" : {\n"
+                        + clusterBlocks.global()
+                            .stream()
+                            .map(clusterBlock -> getExpectedXContentFragment(clusterBlock, "      "))
+                            .collect(Collectors.joining(",\n"))
+                        + "\n    }"
+                        + (!clusterBlocks.indices().isEmpty() ? "," : "")
+                        + "\n"
+            )
+            + String.format(
+                Locale.ROOT,
+                "%s",
+                clusterBlocks.indices().isEmpty()
+                    ? ""
+                    : "    \"indices\" : {\n"
+                        + clusterBlocks.indices()
+                            .entrySet()
+                            .stream()
+                            .map(
+                                entry -> "      \""
+                                    + entry.getKey()
+                                    + "\" : {"
+                                    + (entry.getValue().isEmpty()
+                                        ? " }"
+                                        : "\n"
+                                            + entry.getValue()
+                                                .stream()
+                                                .map(clusterBlock -> getExpectedXContentFragment(clusterBlock, "        "))
+                                                .collect(Collectors.joining(",\n"))
+                                            + "\n      }")
+                            )
+                            .collect(Collectors.joining(",\n"))
+                        + "\n    }\n"
+            )
             + "  }\n"
             + "}";
 
@@ -87,7 +114,7 @@ public class ClusterBlocksTests extends OpenSearchTestCase {
                 IllegalArgumentException.class,
                 () -> ClusterBlocks.fromXContent(createParser(mediaType.xContent(), mutated))
             );
-            assertEquals("unknown field ["+ unsupportedField +"]", exception.getMessage());
+            assertEquals("unknown field [" + unsupportedField + "]", exception.getMessage());
         } else {
             try (XContentParser parser = createParser(JsonXContent.jsonXContent, originalBytes)) {
                 ClusterBlocks parsedClusterBlocks = ClusterBlocks.fromXContent(parser);
