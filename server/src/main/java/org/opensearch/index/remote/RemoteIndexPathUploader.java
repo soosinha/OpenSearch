@@ -23,7 +23,7 @@ import org.opensearch.common.unit.TimeValue;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.core.index.Index;
 import org.opensearch.gateway.remote.IndexMetadataUploadListener;
-import org.opensearch.gateway.remote.RemoteClusterStateService.RemoteStateTransferException;
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.RemoteStateTransferException;
 import org.opensearch.index.remote.RemoteStoreEnums.PathType;
 import org.opensearch.node.Node;
 import org.opensearch.node.remotestore.RemoteStoreNodeAttribute;
