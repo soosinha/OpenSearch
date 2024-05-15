@@ -56,7 +56,7 @@ public class RemoteClusterStateUtils {
     /**
      * Exception for Remote state transfer.
      */
-    static class RemoteStateTransferException extends RuntimeException {
+    public static class RemoteStateTransferException extends RuntimeException {
 
         public RemoteStateTransferException(String errorDesc) {
             super(errorDesc);

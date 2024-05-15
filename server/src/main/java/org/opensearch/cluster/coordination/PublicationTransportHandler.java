@@ -235,11 +235,6 @@ public class PublicationTransportHandler {
         } else if (manifest.getDiffManifest().getFromStateUUID().equals(lastSeen.stateUUID()) == false) {
             logger.debug("Last cluster state not compatible with the diff");
             applyFullState = true;
-        } else {
-            ClusterState clusterState = remoteClusterStateService.getClusterStateUsingDiff(request.getClusterName(), manifest, lastSeenClusterState.get());
-            final PublishWithJoinResponse response = acceptState(clusterState);
-            lastSeenClusterState.compareAndSet(lastSeen, clusterState);
-            return response;
         }
 
         if (applyFullState == true) {
@@ -247,6 +242,11 @@ public class PublicationTransportHandler {
             logger.debug("Downloaded full cluster state version [{}]", clusterState.version());
             final PublishWithJoinResponse response = acceptState(clusterState);
             lastSeenClusterState.set(clusterState);
+            return response;
+        } else {
+            ClusterState clusterState = remoteClusterStateService.getClusterStateUsingDiff(request.getClusterName(), manifest, lastSeenClusterState.get());
+            final PublishWithJoinResponse response = acceptState(clusterState);
+            lastSeenClusterState.compareAndSet(lastSeen, clusterState);
             return response;
         }
     }
