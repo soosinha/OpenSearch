@@ -203,10 +203,10 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         fields -> manifestV2Builder(fields).build()
     );
 
-        private static final ConstructingObjectParser<ClusterMetadataManifest, Void> PARSER_V3 = new ConstructingObjectParser<>(
-            "cluster_metadata_manifest",
-            fields -> manifestV3Builder(fields).build()
-        );
+    private static final ConstructingObjectParser<ClusterMetadataManifest, Void> PARSER_V3 = new ConstructingObjectParser<>(
+        "cluster_metadata_manifest",
+        fields -> manifestV3Builder(fields).build()
+    );
 
     private static final ConstructingObjectParser<ClusterMetadataManifest, Void> PARSER_V4 = new ConstructingObjectParser<>(
         "cluster_metadata_manifest",
@@ -587,7 +587,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             builder.field(CODEC_VERSION_FIELD.getPreferredName(), getCodecVersion());
             builder.field(GLOBAL_METADATA_FIELD.getPreferredName(), getGlobalMetadataFileName());
         }
-        if (onOrAfterCodecVersion(CODEC_V3)) {
+        if (onOrAfterCodecVersion(CODEC_V4)) {
             builder.field(ROUTING_TABLE_VERSION_FIELD.getPreferredName(), getRoutingTableVersion());
             builder.startArray(INDICES_ROUTING_FIELD.getPreferredName());
             {
@@ -1144,7 +1144,6 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
 
         @Override
         public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
-            builder.startObject();
             {
                 builder.field("from_state_uuid", fromStateUUID);
                 builder.field("to_state_uuid", toStateUUID);
@@ -1173,7 +1172,6 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                 builder.field("cluster_blocks_diff", clusterBlocksUpdated);
                 builder.field("discovery_nodes_diff", discoveryNodesUpdated);
             }
-            builder.endObject();
             return builder;
         }
 

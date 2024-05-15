@@ -45,7 +45,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
-import static org.opensearch.gateway.remote.RemoteClusterStateService.INDEX_METADATA_UPLOAD_TIMEOUT_SETTING;
 import static org.opensearch.index.remote.RemoteIndexPath.COMBINED_PATH;
 import static org.opensearch.index.remote.RemoteIndexPath.SEGMENT_PATH;
 import static org.opensearch.index.remote.RemoteIndexPath.TRANSLOG_PATH;
@@ -98,8 +97,6 @@ public class RemoteIndexPathUploader extends IndexMetadataUploadListener {
         // If the remote data attributes are not present, then there is no effect of translog and segment being same or different or null.
         isTranslogSegmentRepoSame = isTranslogSegmentRepoSame();
         Objects.requireNonNull(clusterSettings);
-        indexMetadataUploadTimeout = clusterSettings.get(INDEX_METADATA_UPLOAD_TIMEOUT_SETTING);
-        clusterSettings.addSettingsUpdateConsumer(INDEX_METADATA_UPLOAD_TIMEOUT_SETTING, this::setIndexMetadataUploadTimeout);
     }
 
     @Override

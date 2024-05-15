@@ -742,8 +742,7 @@ public class Node implements Closeable {
                     settings,
                     clusterService.getClusterSettings(),
                     threadPool::preciseRelativeTimeInNanos,
-                    threadPool,
-                    List.of(remoteIndexPathUploader)
+                    threadPool
                 );
             } else {
                 remoteClusterStateService = null;
