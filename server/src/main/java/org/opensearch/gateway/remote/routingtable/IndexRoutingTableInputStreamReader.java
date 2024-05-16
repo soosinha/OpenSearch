@@ -44,7 +44,7 @@ public class IndexRoutingTableInputStreamReader {
                 IndexRoutingTableHeader.read(in);
                 int shards = in.readVInt();
                 logger.info("Number of Index Routing Table {}", shards);
-                Map<String, IndexShardRoutingTable> indicesRouting = new HashMap<String, IndexShardRoutingTable>(Collections.EMPTY_MAP);
+                Map<String, IndexShardRoutingTable> indicesRouting = new HashMap<>();
                 for(int i=0; i<shards; i++)
                 {
                     IndexShardRoutingTable indexShardRoutingTable = IndexShardRoutingTable.Builder.readFrom(in);
