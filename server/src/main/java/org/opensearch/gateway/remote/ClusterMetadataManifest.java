@@ -14,6 +14,8 @@ import org.opensearch.Version;
 import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.cluster.metadata.Metadata;
+import org.opensearch.cluster.routing.IndexRoutingTable;
+import org.opensearch.cluster.routing.RoutingTable;
 import org.opensearch.core.ParseField;
 import org.opensearch.core.common.Strings;
 import org.opensearch.core.common.io.stream.StreamInput;
@@ -1152,6 +1154,9 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         private static final ParseField DELETES_FIELD = new ParseField("deletes");
         private static final ParseField CLUSTER_BLOCKS_UPDATED_FIELD = new ParseField("cluster_blocks_diff");
         private static final ParseField DISCOVERY_NODES_UPDATED_FIELD = new ParseField("discovery_nodes_diff");
+        private static final ParseField ROUTING_TABLE_DIFF = new ParseField("routing_table_diff");
+        private static final ParseField ROUTING_TABLE_UPSERT_FIELD = new ParseField("routing_table_upsert");
+        private static final ParseField ROUTING_TABLE_DELETE_FIELD = new ParseField("routing_table_delete");
         private static final ObjectParser.NamedObjectParser<ClusterDiffManifest, Void> PARSER;
         static {
             ConstructingObjectParser<ClusterDiffManifest, Void> innerParser = new ConstructingObjectParser<ClusterDiffManifest, Void>(
@@ -1166,6 +1171,8 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                     .indicesDeleted((List<String>) fields[6])
                     .clusterBlocksUpdated((Boolean) fields[7])
                     .discoveryNodesUpdated((Boolean) fields[8])
+                    .indicesRoutingUpdated((List<String>) fields[9])
+                    .indicesRoutingDeleted((List<String>) fields[10])
                     .build()
             );
             innerParser.declareString(ConstructingObjectParser.constructorArg(), FROM_STATE_UUID_FIELD);
@@ -1177,6 +1184,9 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             innerParser.declareStringArray(ConstructingObjectParser.constructorArg(), DELETES_FIELD);
             innerParser.declareBoolean(ConstructingObjectParser.constructorArg(), DISCOVERY_NODES_UPDATED_FIELD);
             innerParser.declareBoolean(ConstructingObjectParser.constructorArg(), CLUSTER_BLOCKS_UPDATED_FIELD);
+            innerParser.declareStringArray(ConstructingObjectParser.constructorArg(), ROUTING_TABLE_UPSERT_FIELD);
+            innerParser.declareStringArray(ConstructingObjectParser.constructorArg(), ROUTING_TABLE_DELETE_FIELD);
+
             PARSER = ((p, c, name) -> innerParser.parse(p, null));
         }
         private final String fromStateUUID;
@@ -1189,6 +1199,8 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         private final List<String> indicesDeleted;
         private final boolean clusterBlocksUpdated;
         private final boolean discoveryNodesUpdated;
+        private final List<String> indicesRoutingUpdated;
+        private final List<String> indicesRoutingDeleted;
 
         ClusterDiffManifest(ClusterState state, ClusterState previousState) {
             fromStateUUID = previousState.stateUUID();
@@ -1207,9 +1219,22 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                     state.metadata().customs().get(custom).equals(previousState.metadata().customs().get(custom))
                 );
             }
+            indicesRoutingUpdated = getIndicesRoutingUpdated(previousState.routingTable(), state.routingTable());
+            indicesRoutingDeleted = getIndicesRoutingDeleted(previousState.routingTable(), state.routingTable());
         }
 
-        public ClusterDiffManifest(String fromStateUUID, String toStateUUID, boolean coordinationMetadataUpdated, boolean settingsMetadataUpdated, boolean templatesMetadataUpdated, Map<String, Boolean> customMetadataUpdated, List<String> indicesUpdated, List<String> indicesDeleted, boolean clusterBlocksUpdated, boolean discoveryNodesUpdated) {
+        public ClusterDiffManifest(String fromStateUUID,
+                                   String toStateUUID,
+                                   boolean coordinationMetadataUpdated,
+                                   boolean settingsMetadataUpdated,
+                                   boolean templatesMetadataUpdated,
+                                   Map<String, Boolean> customMetadataUpdated,
+                                   List<String> indicesUpdated,
+                                   List<String> indicesDeleted,
+                                   boolean clusterBlocksUpdated,
+                                   boolean discoveryNodesUpdated,
+                                   List<String>indicesRoutingUpdated,
+                                   List<String>indicesRoutingDeleted) {
             this.fromStateUUID = fromStateUUID;
             this.toStateUUID = toStateUUID;
             this.coordinationMetadataUpdated = coordinationMetadataUpdated;
@@ -1220,6 +1245,8 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             this.indicesDeleted = indicesDeleted;
             this.clusterBlocksUpdated = clusterBlocksUpdated;
             this.discoveryNodesUpdated = discoveryNodesUpdated;
+            this.indicesRoutingUpdated = indicesRoutingUpdated;
+            this.indicesRoutingDeleted = indicesRoutingDeleted;
         }
 
         @Override
@@ -1252,6 +1279,19 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                 builder.endObject();
                 builder.field(CLUSTER_BLOCKS_UPDATED_FIELD.getPreferredName(), clusterBlocksUpdated);
                 builder.field(DISCOVERY_NODES_UPDATED_FIELD.getPreferredName(), discoveryNodesUpdated);
+
+                builder.startObject(ROUTING_TABLE_DIFF.getPreferredName());
+                builder.startArray(ROUTING_TABLE_UPSERT_FIELD.getPreferredName());
+                for (String index : indicesRoutingUpdated) {
+                    builder.value(index);
+                }
+                builder.endArray();
+                builder.startArray(ROUTING_TABLE_DELETE_FIELD.getPreferredName());
+                for (String index : indicesRoutingDeleted) {
+                    builder.value(index);
+                }
+                builder.endArray();
+                builder.endObject();
             }
             return builder;
         }
@@ -1281,6 +1321,34 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                 }
             }
             return updatedIndices;
+        }
+
+        public List<String> getIndicesRoutingDeleted(RoutingTable previousRoutingTable, RoutingTable currentRoutingTable) {
+            List<String> deletedIndices = new ArrayList<>();
+            for(IndexRoutingTable previousIndexRouting: previousRoutingTable.getIndicesRouting().values()) {
+                if(!currentRoutingTable.getIndicesRouting().containsKey(previousIndexRouting.getIndex().getName())) {
+                    // Latest Routing Table does not have entry for the index which means the index is deleted
+                    deletedIndices.add(previousIndexRouting.getIndex().getName());
+                }
+            }
+            return deletedIndices;
+        }
+
+        public List<String> getIndicesRoutingUpdated(RoutingTable previousRoutingTable, RoutingTable currentRoutingTable) {
+            List<String> updatedIndicesRouting = new ArrayList<>();
+            for(IndexRoutingTable currentIndicesRouting: currentRoutingTable.getIndicesRouting().values()) {
+                if(!previousRoutingTable.getIndicesRouting().containsKey(currentIndicesRouting.getIndex().getName())) {
+                    // Latest Routing Table does not have entry for the index which means the index is created
+                    updatedIndicesRouting.add(currentIndicesRouting.getIndex().getName());
+                } else {
+                    if(previousRoutingTable.getIndicesRouting().get(currentIndicesRouting.getIndex().getName()).equals(currentIndicesRouting)) {
+                        // if the latest routing table has the same routing table as the previous routing table, then the index is not updated
+                        continue;
+                    }
+                    updatedIndicesRouting.add(currentIndicesRouting.getIndex().getName());
+                }
+            }
+            return updatedIndicesRouting;
         }
 
         public String getFromStateUUID() {
@@ -1323,6 +1391,14 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             return discoveryNodesUpdated;
         }
 
+        public List<String> getIndicesRoutingUpdated() {
+            return indicesRoutingUpdated;
+        }
+
+        public List<String> getIndicesRoutingDeleted() {
+            return indicesRoutingDeleted;
+        }
+
         public static ClusterDiffManifest.Builder builder() {
             return new Builder();
         }
@@ -1338,6 +1414,8 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             private List<String> indicesDeleted;
             private boolean clusterBlocksUpdated;
             private boolean discoveryNodesUpdated;
+            private List<String> indicesRoutingUpdated;
+            private List<String> indicesRoutingDeleted;
             public Builder() {}
 
             public Builder fromStateUUID(String fromStateUUID) {
@@ -1390,6 +1468,16 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                 return this;
             }
 
+            public Builder indicesRoutingUpdated(List<String> indicesRoutingUpdated) {
+                this.indicesRoutingUpdated = indicesRoutingUpdated;
+                return this;
+            }
+
+            public Builder indicesRoutingDeleted(List<String> indicesRoutingDeleted) {
+                this.indicesRoutingDeleted = indicesRoutingDeleted;
+                return this;
+            }
+
             public ClusterDiffManifest build() {
                 return new ClusterDiffManifest(
                     fromStateUUID,
@@ -1401,7 +1489,9 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                     indicesUpdated,
                     indicesDeleted,
                     clusterBlocksUpdated,
-                    discoveryNodesUpdated
+                    discoveryNodesUpdated,
+                    indicesRoutingUpdated,
+                    indicesRoutingDeleted
                 );
             }
         }
