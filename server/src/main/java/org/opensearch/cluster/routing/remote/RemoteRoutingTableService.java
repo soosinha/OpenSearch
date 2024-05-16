@@ -24,9 +24,11 @@ import org.opensearch.common.settings.Setting;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.util.io.IOUtils;
 import org.opensearch.core.common.io.stream.StreamOutput;
+import org.opensearch.core.index.Index;
 import org.opensearch.gateway.remote.ClusterMetadataManifest;
 import org.opensearch.gateway.remote.RemoteClusterStateService;
 import org.opensearch.gateway.remote.routingtable.IndexRoutingTableInputStream;
+import org.opensearch.gateway.remote.routingtable.IndexRoutingTableInputStreamReader;
 import org.opensearch.index.remote.RemoteStoreUtils;
 import org.opensearch.node.Node;
 import org.opensearch.node.remotestore.RemoteStoreNodeAttribute;
@@ -40,6 +42,7 @@ import java.io.IOException;
 
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -157,6 +160,23 @@ public class RemoteRoutingTableService implements Closeable {
 
     public RoutingTable getIncrementalRoutingTable(ClusterState previousClusterState, ClusterMetadataManifest previousManifest, String clusterName, String clusterUUID) {
         return null;
+    }
+
+    public RoutingTable getLatestRoutingTable(long routingTableVersion, List<ClusterMetadataManifest.UploadedIndexMetadata> indicesRoutingMetaData) throws IOException {
+        Map<String, IndexRoutingTable> indicesRouting = new HashMap<>();
+
+        for(ClusterMetadataManifest.UploadedIndexMetadata indexRoutingMetaData: indicesRoutingMetaData) {
+            logger.debug("Starting the read for first indexRoutingMetaData: {}", indexRoutingMetaData);
+            String filePath = indexRoutingMetaData.getUploadedFilePath();
+            BlobContainer container = blobStoreRepository.blobStore().blobContainer(blobStoreRepository.basePath().add(filePath));
+            InputStream inputStream = container.readBlob(indexRoutingMetaData.getIndexName());
+            IndexRoutingTableInputStreamReader indexRoutingTableInputStreamReader = new IndexRoutingTableInputStreamReader(inputStream);
+            Index index = new Index(indexRoutingMetaData.getIndexName(), indexRoutingMetaData.getIndexUUID());
+            IndexRoutingTable indexRouting = indexRoutingTableInputStreamReader.readIndexRoutingTable(index);
+            indicesRouting.put(indexRoutingMetaData.getIndexName(), indexRouting);
+            logger.debug("IndexRouting {}", indexRouting);
+        }
+        return new RoutingTable(routingTableVersion, indicesRouting);
     }
 
     private void deleteStaleRoutingTable(String clusterName, String clusterUUID, int manifestsToRetain) {

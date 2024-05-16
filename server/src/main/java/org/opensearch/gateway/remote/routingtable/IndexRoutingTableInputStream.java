@@ -8,13 +8,10 @@
 
 package org.opensearch.gateway.remote.routingtable;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.opensearch.cluster.routing.IndexRoutingTable;
 import org.opensearch.cluster.routing.IndexShardRoutingTable;
 import org.opensearch.common.io.stream.BufferedChecksumStreamOutput;
 import org.opensearch.common.io.stream.BytesStreamOutput;
-import org.opensearch.core.common.Strings;
 import org.opensearch.core.common.bytes.BytesReference;
 
 import java.io.IOException;
@@ -56,9 +53,7 @@ public class IndexRoutingTableInputStream extends InputStream {
     private static final int BUFFER_SIZE = 8192;
 
     private final IndexRoutingTableHeader indexRoutingTableHeader;
-
     private final Iterator<IndexShardRoutingTable> shardIter;
-    private static final Logger logger = LogManager.getLogger(IndexRoutingTableInputStream.class);
     private final BytesStreamOutput bytesStreamOutput;
     private final BufferedChecksumStreamOutput out;
 
@@ -66,14 +61,12 @@ public class IndexRoutingTableInputStream extends InputStream {
         this(indexRoutingTable, BUFFER_SIZE);
     }
 
-    public IndexRoutingTableInputStream(IndexRoutingTable indexRoutingTable, int size)
-        throws IOException {
+    public IndexRoutingTableInputStream(IndexRoutingTable indexRoutingTable, int size) throws IOException {
         this.buf = new byte[size];
         this.shardIter = indexRoutingTable.iterator();
         this.indexRoutingTableHeader = new IndexRoutingTableHeader(indexRoutingTable.getIndex().getName());
         this.bytesStreamOutput = new BytesStreamOutput();
         this.out = new BufferedChecksumStreamOutput(bytesStreamOutput);
-        logger.info("indexRoutingTable {}", indexRoutingTable.prettyPrint());
 
         initialFill(indexRoutingTable.shards().size());
     }
@@ -91,7 +84,7 @@ public class IndexRoutingTableInputStream extends InputStream {
         indexRoutingTableHeader.write(out);
         out.writeVInt(shardCount);
 
-        System.arraycopy(bytesStreamOutput.bytes().toBytesRef().bytes, 0 , buf, 0, bytesStreamOutput.bytes().length());
+        System.arraycopy(bytesStreamOutput.bytes().toBytesRef().bytes, 0, buf, 0, bytesStreamOutput.bytes().length());
         count = bytesStreamOutput.bytes().length();
         bytesStreamOutput.reset();
         fill(buf);
@@ -99,17 +92,17 @@ public class IndexRoutingTableInputStream extends InputStream {
 
     private void fill(byte[] buf) throws IOException {
         if (leftOverBuf != null) {
-            if(leftOverBuf.length > buf.length - count) {
-                // leftOverBuf has more content than length of buf, so we need to copy only based on buf length and keep the remaining in leftOverBuf.
+            if (leftOverBuf.length > buf.length - count) {
+                // leftOverBuf has more content than length of buf, so we need to copy only based on buf length and keep the remaining in
+                // leftOverBuf.
                 System.arraycopy(leftOverBuf, 0, buf, count, buf.length - count);
-                byte[] tempLeftOverBuffer =  new byte[leftOverBuf.length - (buf.length - count)];
-                System.arraycopy(leftOverBuf, buf.length - count , tempLeftOverBuffer, 0, leftOverBuf.length - (buf.length - count));
+                byte[] tempLeftOverBuffer = new byte[leftOverBuf.length - (buf.length - count)];
+                System.arraycopy(leftOverBuf, buf.length - count, tempLeftOverBuffer, 0, leftOverBuf.length - (buf.length - count));
                 leftOverBuf = tempLeftOverBuffer;
                 count = buf.length - count;
-
             } else {
                 System.arraycopy(leftOverBuf, 0, buf, count, leftOverBuf.length);
-                count +=  leftOverBuf.length;
+                count += leftOverBuf.length;
                 leftOverBuf = null;
             }
         }
@@ -117,8 +110,8 @@ public class IndexRoutingTableInputStream extends InputStream {
         if (count < buf.length && shardIter.hasNext()) {
             IndexShardRoutingTable next = shardIter.next();
             IndexShardRoutingTable.Builder.writeTo(next, out);
-            //Add checksum for the file after all shards are done
-            if(!shardIter.hasNext()) {
+            // Add checksum for the file after all shards are done
+            if (!shardIter.hasNext()) {
                 out.writeLong(out.getChecksum());
             }
             out.flush();
@@ -132,12 +125,10 @@ public class IndexRoutingTableInputStream extends InputStream {
             } else {
                 System.arraycopy(bytesRef.toBytesRef().bytes, 0, buf, count, buf.length - count);
                 leftOverBuf = new byte[bytesRef.length() - (buf.length - count)];
-                System.arraycopy(bytesRef.toBytesRef().bytes, buf.length - count , leftOverBuf, 0, bytesRef.length() - (buf.length - count));
+                System.arraycopy(bytesRef.toBytesRef().bytes, buf.length - count, leftOverBuf, 0, bytesRef.length() - (buf.length - count));
                 count = buf.length;
-
             }
         }
-
     }
 
     private void maybeResizeAndFill() throws IOException {
@@ -153,7 +144,7 @@ public class IndexRoutingTableInputStream extends InputStream {
                 markPos = -1; /* buffer got too big, invalidate mark */
                 pos = 0; /* drop buffer contents */
             } else { /* grow buffer */
-                int nsz = markLimit + 1; //NEED TO CHECK THIS
+                int nsz = markLimit + 1;
                 byte[] nbuf = new byte[nsz];
                 System.arraycopy(buffer, 0, nbuf, 0, pos);
                 buffer = nbuf;
