@@ -112,7 +112,7 @@ public class PublicationTransportHandlerTests extends OpenSearchTestCase {
 
         OpenSearchException e = expectThrows(
             OpenSearchException.class,
-            () -> handler.newPublicationContext(new ClusterChangedEvent("test", unserializableClusterState, clusterState))
+            () -> handler.newPublicationContext(new ClusterChangedEvent("test", unserializableClusterState, clusterState), false)
         );
         assertNotNull(e.getCause());
         assertThat(e.getCause(), instanceOf(IOException.class));

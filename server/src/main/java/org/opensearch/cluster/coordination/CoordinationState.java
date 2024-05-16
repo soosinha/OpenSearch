@@ -104,6 +104,10 @@ public class CoordinationState {
         this.isRemoteStateEnabled = isRemoteStoreClusterStateEnabled(settings);
     }
 
+    public boolean isRemoteStateEnabled() {
+        return isRemoteStateEnabled;
+    }
+
     public long getCurrentTerm() {
         return persistedStateRegistry.getPersistedState(PersistedStateType.LOCAL).getCurrentTerm();
     }
