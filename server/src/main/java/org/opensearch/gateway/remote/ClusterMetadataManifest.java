@@ -610,7 +610,6 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                 attribute.toXContent(builder, params);
             }
             builder.endObject();
-            diffManifest.toXContent(builder, params);
         } else if (onOrAfterCodecVersion(CODEC_V1)) {
             builder.field(CODEC_VERSION_FIELD.getPreferredName(), getCodecVersion());
             builder.field(GLOBAL_METADATA_FIELD.getPreferredName(), getGlobalMetadataFileName());
