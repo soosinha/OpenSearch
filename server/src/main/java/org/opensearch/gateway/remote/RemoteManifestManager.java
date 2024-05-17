@@ -131,7 +131,7 @@ public class RemoteManifestManager {
         Map<String, ClusterMetadataManifest.UploadedMetadataAttribute> uploadedCustomMetadataMap,
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedDiscoveryNodesMetadata,
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedClusterBlocksMetadata,
-        ClusterMetadataManifest.ClusterDiffManifest clusterDiffManifest,
+        ClusterStateDiffManifest clusterDiffManifest,
         List<ClusterMetadataManifest.UploadedIndexMetadata> routingIndexMetadata, boolean committed
     ) throws IOException {
         synchronized (this) {

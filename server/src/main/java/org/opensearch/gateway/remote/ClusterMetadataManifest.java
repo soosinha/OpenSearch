@@ -11,27 +11,19 @@ package org.opensearch.gateway.remote;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.opensearch.Version;
-import org.opensearch.cluster.ClusterState;
-import org.opensearch.cluster.metadata.IndexMetadata;
-import org.opensearch.cluster.metadata.Metadata;
-import org.opensearch.cluster.routing.IndexRoutingTable;
-import org.opensearch.cluster.routing.RoutingTable;
 import org.opensearch.core.ParseField;
 import org.opensearch.core.common.Strings;
 import org.opensearch.core.common.io.stream.StreamInput;
 import org.opensearch.core.common.io.stream.StreamOutput;
 import org.opensearch.core.common.io.stream.Writeable;
-import org.opensearch.core.common.util.CollectionUtils;
 import org.opensearch.core.xcontent.ConstructingObjectParser;
 import org.opensearch.core.xcontent.MediaTypeRegistry;
 import org.opensearch.core.xcontent.ObjectParser;
 import org.opensearch.core.xcontent.ToXContentFragment;
-import org.opensearch.core.xcontent.ToXContentObject;
 import org.opensearch.core.xcontent.XContentBuilder;
 import org.opensearch.core.xcontent.XContentParser;
 
 import java.io.IOException;
-import java.util.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -149,8 +141,8 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         return (UploadedMetadataAttribute) fields[16];
     }
 
-    private static ClusterDiffManifest diffManifest(Object[] fields) {
-        return (ClusterDiffManifest) fields[17];
+    private static ClusterStateDiffManifest diffManifest(Object[] fields) {
+        return (ClusterStateDiffManifest) fields[17];
     }
 
     private static long routingTableVersion(Object[] fields) {
@@ -319,7 +311,21 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             );
         }
         if (codec_version >= CODEC_V3) {
-            parser.declareNamedObject(ConstructingObjectParser.constructorArg(), ClusterDiffManifest.PARSER, DIFF_MANIFEST);
+            parser.declareNamedObject(
+                ConstructingObjectParser.optionalConstructorArg(),
+                UploadedMetadataAttribute.PARSER,
+                UPLOADED_DISCOVERY_NODES_METADATA
+            );
+            parser.declareNamedObject(
+                ConstructingObjectParser.optionalConstructorArg(),
+                UploadedMetadataAttribute.PARSER,
+                UPLOADED_CLUSTER_BLOCKS_METADATA
+            );
+            parser.declareObject(
+                ConstructingObjectParser.constructorArg(),
+                (p, c) -> ClusterStateDiffManifest.fromXContent(p),
+                DIFF_MANIFEST
+            );
         }
         if (codec_version >= CODEC_V4) {
             parser.declareLong(ConstructingObjectParser.constructorArg(), ROUTING_TABLE_VERSION_FIELD);
@@ -349,7 +355,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
     private final boolean committed;
     private final String previousClusterUUID;
     private final boolean clusterUUIDCommitted;
-    private final ClusterDiffManifest diffManifest;
+    private final ClusterStateDiffManifest diffManifest;
     private final long routingTableVersion;
     private final List<UploadedIndexMetadata> indicesRouting;
 
@@ -422,7 +428,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         return uploadedClusterBlocksMetadata;
     }
 
-    public ClusterDiffManifest getDiffManifest() {
+    public ClusterStateDiffManifest getDiffManifest() {
         return diffManifest;
     }
 
@@ -463,7 +469,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         Map<String, UploadedMetadataAttribute> uploadedCustomMetadataMap,
         UploadedMetadataAttribute discoveryNodesMetadata,
         UploadedMetadataAttribute clusterBlocksMetadata,
-        ClusterDiffManifest diffManifest,
+        ClusterStateDiffManifest diffManifest,
         long routingTableVersion,
         List<UploadedIndexMetadata> indicesRouting
     ) {
@@ -748,7 +754,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         private String previousClusterUUID;
         private boolean committed;
         private boolean clusterUUIDCommitted;
-        private ClusterDiffManifest diffManifest;
+        private ClusterStateDiffManifest diffManifest;
         private long routingTableVersion;
         private List<UploadedIndexMetadata> indicesRouting;
 
@@ -865,7 +871,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             return this;
         }
 
-        public Builder diffManifest(ClusterDiffManifest diffManifest) {
+        public Builder diffManifest(ClusterStateDiffManifest diffManifest) {
             this.diffManifest = diffManifest;
             return this;
         }
@@ -1137,363 +1143,6 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                 + uploadedFilename
                 + '\''
                 + '}';
-        }
-    }
-
-    public static class ClusterDiffManifest implements ToXContentObject {
-        private static final ParseField FROM_STATE_UUID_FIELD = new ParseField("from_state_uuid");
-        private static final ParseField TO_STATE_UUID_FIELD = new ParseField("to_state_uuid");
-        private static final ParseField METADATA_DIFF_FIELD = new ParseField("metadata_diff");
-        private static final ParseField COORDINATION_METADATA_UPDATED_FIELD = new ParseField(
-            "coordination_metadata_diff"
-        );
-        private static final ParseField SETTINGS_METADATA_UPDATED_FIELD = new ParseField("settings_metadata_diff");
-        private static final ParseField TEMPLATES_METADATA_UPDATED_FIELD = new ParseField("templates_metadata_diff");
-        private static final ParseField INDICES_DIFF_FIELD = new ParseField("indices_diff");
-        private static final ParseField UPSERTS_FIELD = new ParseField("upserts");
-        private static final ParseField DELETES_FIELD = new ParseField("deletes");
-        private static final ParseField CLUSTER_BLOCKS_UPDATED_FIELD = new ParseField("cluster_blocks_diff");
-        private static final ParseField DISCOVERY_NODES_UPDATED_FIELD = new ParseField("discovery_nodes_diff");
-        private static final ParseField ROUTING_TABLE_DIFF = new ParseField("routing_table_diff");
-        private static final ParseField ROUTING_TABLE_UPSERT_FIELD = new ParseField("routing_table_upsert");
-        private static final ParseField ROUTING_TABLE_DELETE_FIELD = new ParseField("routing_table_delete");
-        private static final ObjectParser.NamedObjectParser<ClusterDiffManifest, Void> PARSER;
-        static {
-            ConstructingObjectParser<ClusterDiffManifest, Void> innerParser = new ConstructingObjectParser<ClusterDiffManifest, Void>(
-                "cluster_diff_manifest",
-                fields -> ClusterDiffManifest.builder()
-                    .fromStateUUID((String) fields[0])
-                    .toStateUUID((String) fields[1])
-                    .coordinationMetadataUpdated((Boolean) fields[2])
-                    .settingsMetadataUpdated((Boolean) fields[3])
-                    .templatesMetadataUpdated((Boolean) fields[4])
-                    .indicesUpdated((List<String>) fields[5])
-                    .indicesDeleted((List<String>) fields[6])
-                    .clusterBlocksUpdated((Boolean) fields[7])
-                    .discoveryNodesUpdated((Boolean) fields[8])
-                    .indicesRoutingUpdated((List<String>) fields[9])
-                    .indicesRoutingDeleted((List<String>) fields[10])
-                    .build()
-            );
-            innerParser.declareString(ConstructingObjectParser.constructorArg(), FROM_STATE_UUID_FIELD);
-            innerParser.declareString(ConstructingObjectParser.constructorArg(), TO_STATE_UUID_FIELD);
-            innerParser.declareBoolean(ConstructingObjectParser.constructorArg(), COORDINATION_METADATA_UPDATED_FIELD);
-            innerParser.declareBoolean(ConstructingObjectParser.constructorArg(), SETTINGS_METADATA_UPDATED_FIELD);
-            innerParser.declareBoolean(ConstructingObjectParser.constructorArg(), TEMPLATES_METADATA_UPDATED_FIELD);
-            innerParser.declareStringArray(ConstructingObjectParser.constructorArg(), UPSERTS_FIELD);
-            innerParser.declareStringArray(ConstructingObjectParser.constructorArg(), DELETES_FIELD);
-            innerParser.declareBoolean(ConstructingObjectParser.constructorArg(), DISCOVERY_NODES_UPDATED_FIELD);
-            innerParser.declareBoolean(ConstructingObjectParser.constructorArg(), CLUSTER_BLOCKS_UPDATED_FIELD);
-            innerParser.declareStringArray(ConstructingObjectParser.constructorArg(), ROUTING_TABLE_UPSERT_FIELD);
-            innerParser.declareStringArray(ConstructingObjectParser.constructorArg(), ROUTING_TABLE_DELETE_FIELD);
-
-            PARSER = ((p, c, name) -> innerParser.parse(p, null));
-        }
-        private final String fromStateUUID;
-        private final String toStateUUID;
-        private final boolean coordinationMetadataUpdated;
-        private final boolean settingsMetadataUpdated;
-        private final boolean templatesMetadataUpdated;
-        private final Map<String, Boolean> customMetadataUpdated;
-        private final List<String> indicesUpdated;
-        private final List<String> indicesDeleted;
-        private final boolean clusterBlocksUpdated;
-        private final boolean discoveryNodesUpdated;
-        private final List<String> indicesRoutingUpdated;
-        private final List<String> indicesRoutingDeleted;
-
-        ClusterDiffManifest(ClusterState state, ClusterState previousState) {
-            fromStateUUID = previousState.stateUUID();
-            toStateUUID = state.stateUUID();
-            coordinationMetadataUpdated = Metadata.isCoordinationMetadataEqual(state.metadata(), previousState.metadata());
-            settingsMetadataUpdated = Metadata.isSettingsMetadataEqual(state.metadata(), previousState.metadata());
-            templatesMetadataUpdated = Metadata.isTemplatesMetadataEqual(state.metadata(), previousState.metadata());
-            indicesDeleted = findRemovedIndices(state.metadata().indices(), previousState.metadata().indices());
-            indicesUpdated = findUpdatedIndices(state.metadata().indices(), previousState.metadata().indices());
-            clusterBlocksUpdated = state.blocks().equals(previousState.blocks());
-            discoveryNodesUpdated = state.nodes().delta(previousState.nodes()).hasChanges();
-            customMetadataUpdated = new HashMap<>();
-            for (String custom : state.metadata().customs().keySet()) {
-                customMetadataUpdated.put(
-                    custom,
-                    state.metadata().customs().get(custom).equals(previousState.metadata().customs().get(custom))
-                );
-            }
-            indicesRoutingUpdated = getIndicesRoutingUpdated(previousState.routingTable(), state.routingTable());
-            indicesRoutingDeleted = getIndicesRoutingDeleted(previousState.routingTable(), state.routingTable());
-        }
-
-        public ClusterDiffManifest(String fromStateUUID,
-                                   String toStateUUID,
-                                   boolean coordinationMetadataUpdated,
-                                   boolean settingsMetadataUpdated,
-                                   boolean templatesMetadataUpdated,
-                                   Map<String, Boolean> customMetadataUpdated,
-                                   List<String> indicesUpdated,
-                                   List<String> indicesDeleted,
-                                   boolean clusterBlocksUpdated,
-                                   boolean discoveryNodesUpdated,
-                                   List<String>indicesRoutingUpdated,
-                                   List<String>indicesRoutingDeleted) {
-            this.fromStateUUID = fromStateUUID;
-            this.toStateUUID = toStateUUID;
-            this.coordinationMetadataUpdated = coordinationMetadataUpdated;
-            this.settingsMetadataUpdated = settingsMetadataUpdated;
-            this.templatesMetadataUpdated = templatesMetadataUpdated;
-            this.customMetadataUpdated = customMetadataUpdated;
-            this.indicesUpdated = indicesUpdated;
-            this.indicesDeleted = indicesDeleted;
-            this.clusterBlocksUpdated = clusterBlocksUpdated;
-            this.discoveryNodesUpdated = discoveryNodesUpdated;
-            this.indicesRoutingUpdated = indicesRoutingUpdated;
-            this.indicesRoutingDeleted = indicesRoutingDeleted;
-        }
-
-        @Override
-        public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
-            {
-                builder.field(FROM_STATE_UUID_FIELD.getPreferredName(), fromStateUUID);
-                builder.field(TO_STATE_UUID_FIELD.getPreferredName(), toStateUUID);
-                builder.startObject(METADATA_DIFF_FIELD.getPreferredName());
-                {
-                    builder.field(COORDINATION_METADATA_UPDATED_FIELD.getPreferredName(), coordinationMetadataUpdated);
-                    builder.field(SETTINGS_METADATA_UPDATED_FIELD.getPreferredName(), settingsMetadataUpdated);
-                    builder.field(TEMPLATES_METADATA_UPDATED_FIELD.getPreferredName(), templatesMetadataUpdated);
-                    builder.startObject(INDICES_DIFF_FIELD.getPreferredName());
-                    builder.startArray(UPSERTS_FIELD.getPreferredName());
-                    for (String index : indicesUpdated) {
-                        builder.value(index);
-                    }
-                    builder.endArray();
-                    builder.startArray(DELETES_FIELD.getPreferredName());
-                    for (String index : indicesDeleted) {
-                        builder.value(index);
-                    }
-                    builder.endArray();
-                    builder.endObject();
-                    // ToDo: add the custom metadata diff when we add a parser for this
-//                    for (Map.Entry<String, Boolean> entry : customMetadataUpdated.entrySet()) {
-//                        if (entry.getValue()) builder.field("customs_" + entry.getKey(), true);
-//                    }
-                }
-                builder.endObject();
-                builder.field(CLUSTER_BLOCKS_UPDATED_FIELD.getPreferredName(), clusterBlocksUpdated);
-                builder.field(DISCOVERY_NODES_UPDATED_FIELD.getPreferredName(), discoveryNodesUpdated);
-
-                builder.startObject(ROUTING_TABLE_DIFF.getPreferredName());
-                builder.startArray(ROUTING_TABLE_UPSERT_FIELD.getPreferredName());
-                for (String index : indicesRoutingUpdated) {
-                    builder.value(index);
-                }
-                builder.endArray();
-                builder.startArray(ROUTING_TABLE_DELETE_FIELD.getPreferredName());
-                for (String index : indicesRoutingDeleted) {
-                    builder.value(index);
-                }
-                builder.endArray();
-                builder.endObject();
-            }
-            return builder;
-        }
-
-        public static ClusterDiffManifest fromXContent(XContentParser parser) throws IOException {
-            return PARSER.parse(parser, null, null);
-        }
-
-        public List<String> findRemovedIndices(Map<String, IndexMetadata> indices, Map<String, IndexMetadata> previousIndices) {
-            List<String> removedIndices = new ArrayList<>();
-            for (String index : previousIndices.keySet()) {
-                // index present in previous state but not in current
-                if (!indices.containsKey(index)) {
-                    removedIndices.add(index);
-                }
-            }
-            return removedIndices;
-        }
-
-        public List<String> findUpdatedIndices(Map<String, IndexMetadata> indices, Map<String, IndexMetadata> previousIndices) {
-            List<String> updatedIndices = new ArrayList<>();
-            for (String index : indices.keySet()) {
-                if (!previousIndices.containsKey(index)) {
-                    updatedIndices.add(index);
-                } else if (previousIndices.get(index).getVersion() != indices.get(index).getVersion()) {
-                    updatedIndices.add(index);
-                }
-            }
-            return updatedIndices;
-        }
-
-        public List<String> getIndicesRoutingDeleted(RoutingTable previousRoutingTable, RoutingTable currentRoutingTable) {
-            List<String> deletedIndices = new ArrayList<>();
-            for(IndexRoutingTable previousIndexRouting: previousRoutingTable.getIndicesRouting().values()) {
-                if(!currentRoutingTable.getIndicesRouting().containsKey(previousIndexRouting.getIndex().getName())) {
-                    // Latest Routing Table does not have entry for the index which means the index is deleted
-                    deletedIndices.add(previousIndexRouting.getIndex().getName());
-                }
-            }
-            return deletedIndices;
-        }
-
-        public List<String> getIndicesRoutingUpdated(RoutingTable previousRoutingTable, RoutingTable currentRoutingTable) {
-            List<String> updatedIndicesRouting = new ArrayList<>();
-            for(IndexRoutingTable currentIndicesRouting: currentRoutingTable.getIndicesRouting().values()) {
-                if(!previousRoutingTable.getIndicesRouting().containsKey(currentIndicesRouting.getIndex().getName())) {
-                    // Latest Routing Table does not have entry for the index which means the index is created
-                    updatedIndicesRouting.add(currentIndicesRouting.getIndex().getName());
-                } else {
-                    if(previousRoutingTable.getIndicesRouting().get(currentIndicesRouting.getIndex().getName()).equals(currentIndicesRouting)) {
-                        // if the latest routing table has the same routing table as the previous routing table, then the index is not updated
-                        continue;
-                    }
-                    updatedIndicesRouting.add(currentIndicesRouting.getIndex().getName());
-                }
-            }
-            return updatedIndicesRouting;
-        }
-
-        public String getFromStateUUID() {
-            return fromStateUUID;
-        }
-
-        public String getToStateUUID() {
-            return toStateUUID;
-        }
-
-        public boolean isCoordinationMetadataUpdated() {
-            return coordinationMetadataUpdated;
-        }
-
-        public boolean isSettingsMetadataUpdated() {
-            return settingsMetadataUpdated;
-        }
-
-        public boolean isTemplatesMetadataUpdated() {
-            return templatesMetadataUpdated;
-        }
-
-        public Map<String, Boolean> getCustomMetadataUpdated() {
-            return customMetadataUpdated;
-        }
-
-        public List<String> getIndicesUpdated() {
-            return indicesUpdated;
-        }
-
-        public List<String> getIndicesDeleted() {
-            return indicesDeleted;
-        }
-
-        public boolean isClusterBlocksUpdated() {
-            return clusterBlocksUpdated;
-        }
-
-        public boolean isDiscoveryNodesUpdated() {
-            return discoveryNodesUpdated;
-        }
-
-        public List<String> getIndicesRoutingUpdated() {
-            return indicesRoutingUpdated;
-        }
-
-        public List<String> getIndicesRoutingDeleted() {
-            return indicesRoutingDeleted;
-        }
-
-        public static ClusterDiffManifest.Builder builder() {
-            return new Builder();
-        }
-
-        public static class Builder {
-            private String fromStateUUID;
-            private String toStateUUID;
-            private boolean coordinationMetadataUpdated;
-            private boolean settingsMetadataUpdated;
-            private boolean templatesMetadataUpdated;
-            private Map<String, Boolean> customMetadataUpdated;
-            private List<String> indicesUpdated;
-            private List<String> indicesDeleted;
-            private boolean clusterBlocksUpdated;
-            private boolean discoveryNodesUpdated;
-            private List<String> indicesRoutingUpdated;
-            private List<String> indicesRoutingDeleted;
-            public Builder() {}
-
-            public Builder fromStateUUID(String fromStateUUID) {
-                this.fromStateUUID = fromStateUUID;
-                return this;
-            }
-
-            public Builder toStateUUID(String toStateUUID) {
-                this.toStateUUID = toStateUUID;
-                return this;
-            }
-
-            public Builder coordinationMetadataUpdated(boolean coordinationMetadataUpdated) {
-                this.coordinationMetadataUpdated = coordinationMetadataUpdated;
-                return this;
-            }
-
-            public Builder settingsMetadataUpdated(boolean settingsMetadataUpdated) {
-                this.settingsMetadataUpdated = settingsMetadataUpdated;
-                return this;
-            }
-
-            public Builder templatesMetadataUpdated(boolean templatesMetadataUpdated) {
-                this.templatesMetadataUpdated = templatesMetadataUpdated;
-                return this;
-            }
-
-            public Builder customMetadataUpdated(Map<String, Boolean> customMetadataUpdated) {
-                this.customMetadataUpdated = customMetadataUpdated;
-                return this;
-            }
-
-            public Builder indicesUpdated(List<String> indicesUpdated) {
-                this.indicesUpdated = indicesUpdated;
-                return this;
-            }
-
-            public Builder indicesDeleted(List<String> indicesDeleted) {
-                this.indicesDeleted = indicesDeleted;
-                return this;
-            }
-
-            public Builder clusterBlocksUpdated(boolean clusterBlocksUpdated) {
-                this.clusterBlocksUpdated = clusterBlocksUpdated;
-                return this;
-            }
-
-            public Builder discoveryNodesUpdated(boolean discoveryNodesUpdated) {
-                this.discoveryNodesUpdated = discoveryNodesUpdated;
-                return this;
-            }
-
-            public Builder indicesRoutingUpdated(List<String> indicesRoutingUpdated) {
-                this.indicesRoutingUpdated = indicesRoutingUpdated;
-                return this;
-            }
-
-            public Builder indicesRoutingDeleted(List<String> indicesRoutingDeleted) {
-                this.indicesRoutingDeleted = indicesRoutingDeleted;
-                return this;
-            }
-
-            public ClusterDiffManifest build() {
-                return new ClusterDiffManifest(
-                    fromStateUUID,
-                    toStateUUID,
-                    coordinationMetadataUpdated,
-                    settingsMetadataUpdated,
-                    templatesMetadataUpdated,
-                    customMetadataUpdated,
-                    indicesUpdated,
-                    indicesDeleted,
-                    clusterBlocksUpdated,
-                    discoveryNodesUpdated,
-                    indicesRoutingUpdated,
-                    indicesRoutingDeleted
-                );
-            }
         }
     }
 }

@@ -18,7 +18,6 @@ import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.cluster.metadata.Metadata;
 import org.opensearch.cluster.metadata.TemplatesMetadata;
 import org.opensearch.cluster.routing.remote.RemoteRoutingTableService;
-import org.opensearch.cluster.metadata.TemplatesMetadata;
 import org.opensearch.cluster.node.DiscoveryNode;
 import org.opensearch.common.CheckedRunnable;
 import org.opensearch.common.Nullable;
@@ -33,7 +32,6 @@ import org.opensearch.common.unit.TimeValue;
 import org.opensearch.common.util.concurrent.AbstractAsyncTask;
 import org.opensearch.common.util.io.IOUtils;
 import org.opensearch.core.action.ActionListener;
-import org.opensearch.gateway.remote.ClusterMetadataManifest.ClusterDiffManifest;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedIndexMetadata;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadataAttribute;
 import org.opensearch.index.translog.transfer.BlobStoreTransferService;
@@ -229,7 +227,7 @@ public class RemoteClusterStateService implements Closeable {
             uploadedMetadataResults.uploadedCustomMetadataMap,
             uploadedMetadataResults.uploadedDiscoveryNodes,
             uploadedMetadataResults.uploadedClusterBlocks,
-            new ClusterMetadataManifest.ClusterDiffManifest(clusterState, ClusterState.EMPTY_STATE),
+            new ClusterStateDiffManifest(clusterState, ClusterState.EMPTY_STATE),
             routingIndexMetadata,
             false
         );
@@ -397,7 +395,7 @@ public class RemoteClusterStateService implements Closeable {
             firstUpload || !customsToUpload.isEmpty() ? allUploadedCustomMap : previousManifest.getCustomMetadataMap(),
             firstUpload || updateDiscoveryNodes ? uploadedMetadataResults.uploadedDiscoveryNodes : previousManifest.getDiscoveryNodesMetadata(),
             firstUpload || updateClusterBlocks ? uploadedMetadataResults.uploadedClusterBlocks : previousManifest.getClusterBlocksMetadata(),
-            new ClusterMetadataManifest.ClusterDiffManifest(clusterState, previousClusterState),
+            new ClusterStateDiffManifest(clusterState, previousClusterState),
             routingIndexMetadata, false
         );
         this.latestClusterName = clusterState.getClusterName().value();
@@ -803,7 +801,7 @@ public class RemoteClusterStateService implements Closeable {
 
     public ClusterState getClusterStateUsingDiff(String clusterName, ClusterMetadataManifest manifest, ClusterState previousState) {
         assert manifest.getDiffManifest() != null;
-        ClusterDiffManifest diff = manifest.getDiffManifest();
+        ClusterStateDiffManifest diff = manifest.getDiffManifest();
         ClusterState.Builder clusterStateBuilder = ClusterState.builder(previousState);
         Metadata.Builder metadataBuilder = Metadata.builder(previousState.metadata());
 
