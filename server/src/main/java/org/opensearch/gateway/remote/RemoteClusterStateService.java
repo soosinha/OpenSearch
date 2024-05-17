@@ -17,6 +17,7 @@ import org.opensearch.cluster.coordination.CoordinationMetadata;
 import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.cluster.metadata.Metadata;
 import org.opensearch.cluster.metadata.TemplatesMetadata;
+import org.opensearch.cluster.node.DiscoveryNodes;
 import org.opensearch.cluster.routing.remote.RemoteRoutingTableService;
 import org.opensearch.cluster.node.DiscoveryNode;
 import org.opensearch.common.CheckedRunnable;
@@ -775,10 +776,10 @@ public class RemoteClusterStateService implements Closeable {
             );
         }
 
-        return getClusterStateForManifest(clusterName, clusterMetadataManifest.get());
+        return getClusterStateForManifest(clusterName, clusterMetadataManifest.get(), nodeId);
     }
 
-    public ClusterState getClusterStateForManifest(String clusterName, ClusterMetadataManifest manifest) {
+    public ClusterState getClusterStateForManifest(String clusterName, ClusterMetadataManifest manifest, String localNodeId) {
         // todo make this async
         // Fetch Global Metadata
         Metadata globalMetadata = remoteGlobalMetadataManager.getGlobalMetadata(clusterName, manifest.getClusterUUID(), manifest);
@@ -789,17 +790,20 @@ public class RemoteClusterStateService implements Closeable {
             manifest.getClusterUUID(),
             manifest
         );
+        DiscoveryNodes discoveryNodes = (DiscoveryNodes) remoteClusterStateAttributesManager.readMetadata(DISCOVERY_NODES_FORMAT, clusterName, manifest.getClusterUUID(), manifest.getDiscoveryNodesMetadata().getUploadedFilename());
 
         Map<String, IndexMetadata> indexMetadataMap = new HashMap<>();
         indices.values().forEach(indexMetadata -> { indexMetadataMap.put(indexMetadata.getIndex().getName(), indexMetadata); });
 
         return ClusterState.builder(ClusterState.EMPTY_STATE)
             .version(manifest.getStateVersion())
+            .stateUUID(manifest.getStateUUID())
+            .nodes(DiscoveryNodes.builder(discoveryNodes).localNodeId(localNodeId))
             .metadata(Metadata.builder(globalMetadata).indices(indexMetadataMap).build())
             .build();
     }
 
-    public ClusterState getClusterStateUsingDiff(String clusterName, ClusterMetadataManifest manifest, ClusterState previousState) {
+    public ClusterState getClusterStateUsingDiff(String clusterName, ClusterMetadataManifest manifest, ClusterState previousState, String localNodeId) {
         assert manifest.getDiffManifest() != null;
         ClusterStateDiffManifest diff = manifest.getDiffManifest();
         ClusterState.Builder clusterStateBuilder = ClusterState.builder(previousState);
@@ -827,11 +831,18 @@ public class RemoteClusterStateService implements Closeable {
             TemplatesMetadata templatesMetadata = remoteGlobalMetadataManager.getTemplatesMetadata(clusterName, manifest.getClusterUUID(), manifest.getTemplatesMetadata().getUploadedFilename());
             metadataBuilder.templates(templatesMetadata);
         }
-        for (String customType : diff.getCustomMetadataUpdated().keySet()) {
-            Metadata.Custom custom = remoteGlobalMetadataManager.getCustomsMetadata(clusterName, manifest.getClusterUUID(), manifest.getCustomMetadataMap().get(customType).getUploadedFilename(), customType);
-            metadataBuilder.putCustom(customType, custom);
+        if (diff.isDiscoveryNodesUpdated()) {
+            DiscoveryNodes discoveryNodes = (DiscoveryNodes) remoteClusterStateAttributesManager.readMetadata(DISCOVERY_NODES_FORMAT, clusterName, manifest.getClusterUUID(), manifest.getDiscoveryNodesMetadata().getUploadedFilename());
+            clusterStateBuilder.nodes(DiscoveryNodes.builder(discoveryNodes).localNodeId(localNodeId));
         }
-        return clusterStateBuilder.metadata(metadataBuilder).build();
+        if (diff.getCustomMetadataUpdated() != null) {
+            for (String customType : diff.getCustomMetadataUpdated().keySet()) {
+                Metadata.Custom custom = remoteGlobalMetadataManager.getCustomsMetadata(clusterName, manifest.getClusterUUID(),
+                    manifest.getCustomMetadataMap().get(customType).getUploadedFilename(), customType);
+                metadataBuilder.putCustom(customType, custom);
+            }
+        }
+        return clusterStateBuilder.stateUUID(manifest.getStateUUID()).version(manifest.getStateVersion()).metadata(metadataBuilder).build();
     }
 
     /**

@@ -453,6 +453,7 @@ public class CoordinationState {
             clusterState.version(),
             clusterState.term()
         );
+        logger.info("Setting last accepted state : term - {}, version - {}", clusterState.term(), clusterState.version());
         persistedStateRegistry.getPersistedState(PersistedStateType.LOCAL).setLastAcceptedState(clusterState);
         assert getLastAcceptedState() == clusterState;
 

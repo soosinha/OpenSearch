@@ -248,13 +248,13 @@ public class PublicationTransportHandler {
         }
 
         if (applyFullState == true) {
-            ClusterState clusterState = remoteClusterStateService.getClusterStateForManifest(request.getClusterName(), manifest);
+            ClusterState clusterState = remoteClusterStateService.getClusterStateForManifest(request.getClusterName(), manifest, transportService.getLocalNode().getId());
             logger.debug("Downloaded full cluster state version [{}]", clusterState.version());
             final PublishWithJoinResponse response = acceptState(clusterState);
             lastSeenClusterState.set(clusterState);
             return response;
         } else {
-            ClusterState clusterState = remoteClusterStateService.getClusterStateUsingDiff(request.getClusterName(), manifest, lastSeenClusterState.get());
+            ClusterState clusterState = remoteClusterStateService.getClusterStateUsingDiff(request.getClusterName(), manifest, lastSeenClusterState.get(), transportService.getLocalNode().getId());
             final PublishWithJoinResponse response = acceptState(clusterState);
             lastSeenClusterState.compareAndSet(lastSeen, clusterState);
             return response;
@@ -393,8 +393,7 @@ public class PublicationTransportHandler {
             }
             if (sendRemoteState && destination.isRemoteStoreNode()) {
                 sendRemoteClusterState(destination, publishRequest.getAcceptedState(), responseActionListener);
-            }
-            if (sendFullVersion || previousState.nodes().nodeExists(destination) == false) {
+            } else if (sendFullVersion || previousState.nodes().nodeExists(destination) == false) {
                 logger.trace("sending full cluster state version [{}] to [{}]", newState.version(), destination);
                 sendFullClusterState(destination, responseActionListener);
             } else {

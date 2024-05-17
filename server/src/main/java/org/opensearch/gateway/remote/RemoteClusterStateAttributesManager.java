@@ -8,9 +8,11 @@
 
 package org.opensearch.gateway.remote;
 
+import java.util.Locale;
 import org.opensearch.action.LatchedActionListener;
 import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.block.ClusterBlocks;
+import org.opensearch.cluster.metadata.TemplatesMetadata;
 import org.opensearch.cluster.node.DiscoveryNodes;
 import org.opensearch.common.CheckedRunnable;
 import org.opensearch.common.blobstore.BlobContainer;
@@ -74,6 +76,28 @@ public class RemoteClusterStateAttributesManager {
             completionListener,
             FORMAT_PARAMS
         );
+    }
+
+    public ToXContent readMetadata(ChecksumBlobStoreFormat componentMetadataBlobStore, String clusterName, String clusterUUID, String fileName) {
+        final BlobContainer remoteStateAttributeContainer = clusterStateAttributeContainer(clusterName, clusterUUID);
+        try {
+            // Fetch custom metadata
+            if (fileName != null) {
+                String[] splitPath = fileName.split("/");
+                return componentMetadataBlobStore.read(
+                    remoteStateAttributeContainer,
+                    splitPath[splitPath.length - 1],
+                    blobStoreRepository.getNamedXContentRegistry()
+                );
+            } else {
+                return TemplatesMetadata.EMPTY_METADATA;
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException(
+                String.format(Locale.ROOT, "Error while downloading Templates Metadata - %s", fileName),
+                e
+            );
+        }
     }
 
     private BlobContainer clusterStateAttributeContainer(String clusterName, String clusterUUID) {
