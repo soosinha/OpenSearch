@@ -163,7 +163,7 @@ public class RemoteRoutingTableService implements Closeable {
         return null;
     }
 
-    public RoutingTable getIncrementalRoutingTable(ClusterState previousClusterState, ClusterMetadataManifest manifest) throws IOException {
+    public RoutingTable getIncrementalRoutingTable(ClusterState previousClusterState, ClusterMetadataManifest manifest){
         List<String> indicesRoutingDeleted = manifest.getDiffManifest().getIndicesRoutingDeleted();
         List<String> indicesRoutingUpdated = manifest.getDiffManifest().getIndicesRoutingUpdated();
 
@@ -178,29 +178,40 @@ public class RemoteRoutingTableService implements Closeable {
             logger.debug("Starting the read for first indexRoutingMetaData: {}", indexRoutingMetaData);
             String filePath = indexRoutingMetaData.getUploadedFilePath();
             BlobContainer container = blobStoreRepository.blobStore().blobContainer(blobStoreRepository.basePath().add(filePath));
-            InputStream inputStream = container.readBlob(indexRoutingMetaData.getIndexName());
-            IndexRoutingTableInputStreamReader indexRoutingTableInputStreamReader = new IndexRoutingTableInputStreamReader(inputStream);
-            Index index = new Index(indexRoutingMetaData.getIndexName(), indexRoutingMetaData.getIndexUUID());
-            IndexRoutingTable indexRouting = indexRoutingTableInputStreamReader.readIndexRoutingTable(index);
-            indicesRouting.put(indexRoutingMetaData.getIndexName(), indexRouting);
-            logger.debug("IndexRouting {}", indexRouting);
+            try {
+                InputStream inputStream = container.readBlob(indexRoutingMetaData.getIndexName());
+                IndexRoutingTableInputStreamReader indexRoutingTableInputStreamReader = new IndexRoutingTableInputStreamReader(inputStream);
+                Index index = new Index(indexRoutingMetaData.getIndexName(), indexRoutingMetaData.getIndexUUID());
+                IndexRoutingTable indexRouting = indexRoutingTableInputStreamReader.readIndexRoutingTable(index);
+                indicesRouting.put(indexRoutingMetaData.getIndexName(), indexRouting);
+                logger.debug("IndexRouting {}", indexRouting);
+            } catch (IOException e) {
+                logger.info("RoutingTable read failed with error: {}", e.toString());
+            }
+
         }
         return new RoutingTable(manifest.getRoutingTableVersion(), indicesRouting);
     }
 
-    public RoutingTable getLatestRoutingTable(long routingTableVersion, List<ClusterMetadataManifest.UploadedIndexMetadata> indicesRoutingMetaData) throws IOException {
+    public RoutingTable getFullRoutingTable(long routingTableVersion, List<ClusterMetadataManifest.UploadedIndexMetadata> indicesRoutingMetaData) {
         Map<String, IndexRoutingTable> indicesRouting = new HashMap<>();
 
         for(ClusterMetadataManifest.UploadedIndexMetadata indexRoutingMetaData: indicesRoutingMetaData) {
             logger.debug("Starting the read for first indexRoutingMetaData: {}", indexRoutingMetaData);
             String filePath = indexRoutingMetaData.getUploadedFilePath();
             BlobContainer container = blobStoreRepository.blobStore().blobContainer(blobStoreRepository.basePath().add(filePath));
-            InputStream inputStream = container.readBlob(indexRoutingMetaData.getIndexName());
-            IndexRoutingTableInputStreamReader indexRoutingTableInputStreamReader = new IndexRoutingTableInputStreamReader(inputStream);
-            Index index = new Index(indexRoutingMetaData.getIndexName(), indexRoutingMetaData.getIndexUUID());
-            IndexRoutingTable indexRouting = indexRoutingTableInputStreamReader.readIndexRoutingTable(index);
-            indicesRouting.put(indexRoutingMetaData.getIndexName(), indexRouting);
-            logger.debug("IndexRouting {}", indexRouting);
+
+            try {
+                InputStream inputStream = container.readBlob(indexRoutingMetaData.getIndexName());
+                IndexRoutingTableInputStreamReader indexRoutingTableInputStreamReader = new IndexRoutingTableInputStreamReader(inputStream);
+                Index index = new Index(indexRoutingMetaData.getIndexName(), indexRoutingMetaData.getIndexUUID());
+                IndexRoutingTable indexRouting = indexRoutingTableInputStreamReader.readIndexRoutingTable(index);
+                indicesRouting.put(indexRoutingMetaData.getIndexName(), indexRouting);
+                logger.debug("IndexRouting {}", indexRouting);
+            } catch (IOException e) {
+                logger.info("RoutingTable read failed with error: {}", e.toString());
+            }
+
         }
         return new RoutingTable(routingTableVersion, indicesRouting);
     }

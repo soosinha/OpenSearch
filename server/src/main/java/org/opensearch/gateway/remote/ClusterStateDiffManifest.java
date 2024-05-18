@@ -40,8 +40,6 @@ public class ClusterStateDiffManifest implements ToXContentObject {
     private static final String CLUSTER_BLOCKS_UPDATED_FIELD = ("cluster_blocks_diff");
     private static final String DISCOVERY_NODES_UPDATED_FIELD = ("discovery_nodes_diff");
     private static final String ROUTING_TABLE_DIFF = ("routing_table_diff");
-    private static final String ROUTING_TABLE_UPSERT_FIELD = ("routing_table_upsert");
-    private static final String ROUTING_TABLE_DELETE_FIELD = ("routing_table_delete");
     private final String fromStateUUID;
     private final String toStateUUID;
     private final boolean coordinationMetadataUpdated;
@@ -134,12 +132,12 @@ public class ClusterStateDiffManifest implements ToXContentObject {
             builder.field(DISCOVERY_NODES_UPDATED_FIELD, discoveryNodesUpdated);
 
             builder.startObject(ROUTING_TABLE_DIFF);
-            builder.startArray(ROUTING_TABLE_UPSERT_FIELD);
+            builder.startArray(UPSERTS_FIELD);
             for (String index : indicesRoutingUpdated) {
                 builder.value(index);
             }
             builder.endArray();
-            builder.startArray(ROUTING_TABLE_DELETE_FIELD);
+            builder.startArray(DELETES_FIELD);
             for (String index : indicesRoutingDeleted) {
                 builder.value(index);
             }
@@ -206,14 +204,14 @@ public class ClusterStateDiffManifest implements ToXContentObject {
                         }
                     }
                 } else if (currentFieldName.equals(ROUTING_TABLE_DIFF)) {
-                    while ((token = parser.nextToken()) != XContentParser.Token.END_OBJECT) {
+                    while ((parser.nextToken()) != XContentParser.Token.END_OBJECT) {
                         currentFieldName = parser.currentName();
-                        token = parser.nextToken();
+                        parser.nextToken();
                         switch (currentFieldName) {
-                            case ROUTING_TABLE_UPSERT_FIELD:
+                            case UPSERTS_FIELD:
                                 builder.indicesRoutingUpdated(parseStringList(parser));
                                 break;
-                            case ROUTING_TABLE_DELETE_FIELD:
+                            case DELETES_FIELD:
                                 builder.indicesRoutingDeleted(parseStringList(parser));
                                 break;
                             default:
@@ -271,14 +269,14 @@ public class ClusterStateDiffManifest implements ToXContentObject {
     }
 
     public List<String> getIndicesRoutingDeleted(RoutingTable previousRoutingTable, RoutingTable currentRoutingTable) {
-        List<String> deletedIndices = new ArrayList<>();
+        List<String> deletedIndicesRouting = new ArrayList<>();
         for(IndexRoutingTable previousIndexRouting: previousRoutingTable.getIndicesRouting().values()) {
             if(!currentRoutingTable.getIndicesRouting().containsKey(previousIndexRouting.getIndex().getName())) {
                 // Latest Routing Table does not have entry for the index which means the index is deleted
-                deletedIndices.add(previousIndexRouting.getIndex().getName());
+                deletedIndicesRouting.add(previousIndexRouting.getIndex().getName());
             }
         }
-        return deletedIndices;
+        return deletedIndicesRouting;
     }
 
     public List<String> getIndicesRoutingUpdated(RoutingTable previousRoutingTable, RoutingTable currentRoutingTable) {

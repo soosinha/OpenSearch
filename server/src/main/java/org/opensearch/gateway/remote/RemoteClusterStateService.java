@@ -18,6 +18,7 @@ import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.cluster.metadata.Metadata;
 import org.opensearch.cluster.metadata.TemplatesMetadata;
 import org.opensearch.cluster.node.DiscoveryNodes;
+import org.opensearch.cluster.routing.RoutingTable;
 import org.opensearch.cluster.routing.remote.RemoteRoutingTableService;
 import org.opensearch.cluster.node.DiscoveryNode;
 import org.opensearch.common.CheckedRunnable;
@@ -171,6 +172,8 @@ public class RemoteClusterStateService implements Closeable {
             this.remoteRoutingTableService = new RemoteRoutingTableService(repositoriesService,
                 settings, clusterSettings);
             logger.info("REMOTE ROUTING ENABLED");
+        } else {
+            logger.info("REMOTE ROUTING DISABLED");
         }
         this.staleFileCleanupInterval = clusterSettings.get(REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING);
         clusterSettings.addSettingsUpdateConsumer(REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING, this::updateCleanupInterval);
@@ -795,6 +798,18 @@ public class RemoteClusterStateService implements Closeable {
         Map<String, IndexMetadata> indexMetadataMap = new HashMap<>();
         indices.values().forEach(indexMetadata -> { indexMetadataMap.put(indexMetadata.getIndex().getName(), indexMetadata); });
 
+        if(remoteRoutingTableService != null) {
+            logger.info(" The Remote Routing Table is fetching the Full Routing Table");
+            RoutingTable routingTable = remoteRoutingTableService.getFullRoutingTable(manifest.getRoutingTableVersion(), manifest.getIndicesRouting());
+            return ClusterState.builder(ClusterState.EMPTY_STATE)
+                .version(manifest.getStateVersion())
+                .stateUUID(manifest.getStateUUID())
+                .nodes(DiscoveryNodes.builder(discoveryNodes).localNodeId(localNodeId))
+                .metadata(Metadata.builder(globalMetadata).indices(indexMetadataMap).build())
+                .routingTable(routingTable)
+                .build();
+        }
+
         return ClusterState.builder(ClusterState.EMPTY_STATE)
             .version(manifest.getStateVersion())
             .stateUUID(manifest.getStateUUID())
@@ -842,7 +857,24 @@ public class RemoteClusterStateService implements Closeable {
                 metadataBuilder.putCustom(customType, custom);
             }
         }
-        return clusterStateBuilder.stateUUID(manifest.getStateUUID()).version(manifest.getStateVersion()).metadata(metadataBuilder).build();
+
+        // Constructing Routing Table
+        if(remoteRoutingTableService!= null){
+            RoutingTable routingTable = remoteRoutingTableService.getIncrementalRoutingTable(previousState, manifest);
+            return clusterStateBuilder.
+                stateUUID(manifest.getStateUUID()).
+                version(manifest.getStateVersion()).
+                metadata(metadataBuilder).
+                routingTable(routingTable).
+                build();
+        }
+
+
+        return clusterStateBuilder.
+            stateUUID(manifest.getStateUUID()).
+            version(manifest.getStateVersion()).
+            metadata(metadataBuilder).
+            build();
     }
 
     /**
