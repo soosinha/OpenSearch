@@ -14,6 +14,7 @@ import org.opensearch.Version;
 import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.routing.IndexRoutingTable;
 import org.opensearch.cluster.routing.RoutingTable;
+import org.opensearch.common.CheckedRunnable;
 import org.opensearch.common.blobstore.BlobContainer;
 import org.opensearch.common.blobstore.BlobPath;
 import org.opensearch.common.io.stream.BytesStreamOutput;
@@ -160,6 +161,31 @@ public class RemoteRoutingTableService implements Closeable {
 
     public RoutingTable getIncrementalRoutingTable(ClusterState previousClusterState, ClusterMetadataManifest previousManifest, String clusterName, String clusterUUID) {
         return null;
+    }
+
+    public RoutingTable getIncrementalRoutingTable(ClusterState previousClusterState, ClusterMetadataManifest manifest) throws IOException {
+        List<String> indicesRoutingDeleted = manifest.getDiffManifest().getIndicesRoutingDeleted();
+        List<String> indicesRoutingUpdated = manifest.getDiffManifest().getIndicesRoutingUpdated();
+
+        List<ClusterMetadataManifest.UploadedIndexMetadata> indicesRoutingUpdatedMetadata = manifest.getIndicesRouting().stream()
+            .filter(indexRouting -> indicesRoutingUpdated.contains(indexRouting.getIndexName()))
+            .collect(Collectors.toList());
+
+        Map<String, IndexRoutingTable> indicesRouting = previousClusterState.getRoutingTable().indicesRouting();
+        indicesRoutingDeleted.forEach(indicesRouting::remove);
+
+        for(ClusterMetadataManifest.UploadedIndexMetadata indexRoutingMetaData: indicesRoutingUpdatedMetadata) {
+            logger.debug("Starting the read for first indexRoutingMetaData: {}", indexRoutingMetaData);
+            String filePath = indexRoutingMetaData.getUploadedFilePath();
+            BlobContainer container = blobStoreRepository.blobStore().blobContainer(blobStoreRepository.basePath().add(filePath));
+            InputStream inputStream = container.readBlob(indexRoutingMetaData.getIndexName());
+            IndexRoutingTableInputStreamReader indexRoutingTableInputStreamReader = new IndexRoutingTableInputStreamReader(inputStream);
+            Index index = new Index(indexRoutingMetaData.getIndexName(), indexRoutingMetaData.getIndexUUID());
+            IndexRoutingTable indexRouting = indexRoutingTableInputStreamReader.readIndexRoutingTable(index);
+            indicesRouting.put(indexRoutingMetaData.getIndexName(), indexRouting);
+            logger.debug("IndexRouting {}", indexRouting);
+        }
+        return new RoutingTable(manifest.getRoutingTableVersion(), indicesRouting);
     }
 
     public RoutingTable getLatestRoutingTable(long routingTableVersion, List<ClusterMetadataManifest.UploadedIndexMetadata> indicesRoutingMetaData) throws IOException {
