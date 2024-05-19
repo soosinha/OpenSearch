@@ -160,6 +160,10 @@ public class RemoteGlobalMetadataManager {
                 builder.coordinationMetadata(coordinationMetadata);
                 builder.persistentSettings(settingsMetadata);
                 builder.templates(templatesMetadata);
+                builder.clusterUUID(clusterMetadataManifest.getClusterUUID());
+                builder.clusterUUIDCommitted(clusterMetadataManifest.isClusterUUIDCommitted());
+                //todo add metadata version
+                //builder.version(clusterMetadataManifest.met)
                 clusterMetadataManifest.getCustomMetadataMap()
                     .forEach(
                         (key, value) -> builder.putCustom(
