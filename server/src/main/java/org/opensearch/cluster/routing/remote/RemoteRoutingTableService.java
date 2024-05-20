@@ -96,7 +96,7 @@ public class RemoteRoutingTableService implements Closeable {
         BlobPath custerMetadataBasePath = getCusterMetadataBasePath(blobStoreRepository, clusterState.getClusterName().value(),
             clusterState.metadata().clusterUUID());
         for (IndexRoutingTable indexRouting : currentRoutingTable.getIndicesRouting().values()) {
-            uploadedIndices.add(uploadIndex(indexRouting, clusterState.getRoutingTable().version(), custerMetadataBasePath));
+            uploadedIndices.add(uploadIndex(indexRouting, custerMetadataBasePath));
         }
         logger.info("uploadedIndices {}", uploadedIndices);
 
@@ -124,19 +124,19 @@ public class RemoteRoutingTableService implements Closeable {
                 uploadedIndices.add(allUploadedIndicesRouting.get(indexRouting.getIndex().getName()));
             } else {
                 // new index or shards changed, in both cases we upload new index file.
-                uploadedIndices.add(uploadIndex(indexRouting, clusterState.getRoutingTable().version(), custerMetadataBasePath));
+                uploadedIndices.add(uploadIndex(indexRouting, custerMetadataBasePath));
             }
         }
         return uploadedIndices;
     }
 
-    private ClusterMetadataManifest.UploadedIndexMetadata uploadIndex(IndexRoutingTable indexRouting, long routingTableVersion, BlobPath custerMetadataBasePath) {
+    private ClusterMetadataManifest.UploadedIndexMetadata uploadIndex(IndexRoutingTable indexRouting, BlobPath custerMetadataBasePath) {
         try {
             InputStream indexRoutingStream = new IndexRoutingTableInputStream(indexRouting);
             BlobContainer container = blobStoreRepository.blobStore().blobContainer(custerMetadataBasePath.add(INDEX_ROUTING_PATH_TOKEN).add(indexRouting.getIndex().getUUID()));
-
-            container.writeBlob(getIndexRoutingFileName(), indexRoutingStream, 4096, true);
-            return new ClusterMetadataManifest.UploadedIndexMetadata(indexRouting.getIndex().getName(), indexRouting.getIndex().getUUID(), container.path().buildAsString() + getIndexRoutingFileName());
+            String indexRoutingFileName = getIndexRoutingFileName();
+            container.writeBlob(indexRoutingFileName, indexRoutingStream, 4096, true);
+            return new ClusterMetadataManifest.UploadedIndexMetadata(indexRouting.getIndex().getName(), indexRouting.getIndex().getUUID(), container.path().buildAsString() + indexRoutingFileName);
 
         } catch (IOException e) {
             logger.error("Failed to write {}", e);
@@ -171,15 +171,15 @@ public class RemoteRoutingTableService implements Closeable {
             .filter(indexRouting -> indicesRoutingUpdated.contains(indexRouting.getIndexName()))
             .collect(Collectors.toList());
 
-        Map<String, IndexRoutingTable> indicesRouting = previousClusterState.getRoutingTable().indicesRouting();
+        Map<String, IndexRoutingTable> indicesRouting = new HashMap<>(previousClusterState.getRoutingTable().indicesRouting());
         indicesRoutingDeleted.forEach(indicesRouting::remove);
 
         for(ClusterMetadataManifest.UploadedIndexMetadata indexRoutingMetaData: indicesRoutingUpdatedMetadata) {
             logger.debug("Starting the read for first indexRoutingMetaData: {}", indexRoutingMetaData);
             String filePath = indexRoutingMetaData.getUploadedFilePath();
-            BlobContainer container = blobStoreRepository.blobStore().blobContainer(blobStoreRepository.basePath().add(filePath));
+            BlobContainer container = blobStoreRepository.blobStore().blobContainer(blobStoreRepository.basePath());
             try {
-                InputStream inputStream = container.readBlob(indexRoutingMetaData.getIndexName());
+                InputStream inputStream = container.readBlob(filePath);
                 IndexRoutingTableInputStreamReader indexRoutingTableInputStreamReader = new IndexRoutingTableInputStreamReader(inputStream);
                 Index index = new Index(indexRoutingMetaData.getIndexName(), indexRoutingMetaData.getIndexUUID());
                 IndexRoutingTable indexRouting = indexRoutingTableInputStreamReader.readIndexRoutingTable(index);
