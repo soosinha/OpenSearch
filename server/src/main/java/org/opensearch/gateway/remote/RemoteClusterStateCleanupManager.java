@@ -34,12 +34,12 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static org.opensearch.gateway.remote.RemoteClusterStateService.GLOBAL_METADATA_FORMAT;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.GLOBAL_METADATA_PATH_TOKEN;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.INDEX_METADATA_FORMAT;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.INDEX_PATH_TOKEN;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.MANIFEST_FILE_PREFIX;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.MANIFEST_PATH_TOKEN;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.GLOBAL_METADATA_FORMAT;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.GLOBAL_METADATA_PATH_TOKEN;
+import static org.opensearch.gateway.remote.RemoteIndexMetadata.INDEX_METADATA_FORMAT;
+import static org.opensearch.gateway.remote.RemoteIndexMetadataManager.INDEX_PATH_TOKEN;
+import static org.opensearch.gateway.remote.RemoteManifestManager.MANIFEST_FILE_PREFIX;
+import static org.opensearch.gateway.remote.RemoteManifestManager.MANIFEST_PATH_TOKEN;
 
 /**
  * A Manager which provides APIs to clean up stale cluster state files and runs an async stale cleanup task
@@ -172,7 +172,7 @@ public class RemoteClusterStateCleanupManager implements Closeable {
             Set<String> staleIndexMetadataPaths = new HashSet<>();
             Set<String> staleGlobalMetadataPaths = new HashSet<>();
             activeManifestBlobMetadata.forEach(blobMetadata -> {
-                ClusterMetadataManifest clusterMetadataManifest = remoteClusterStateService.fetchRemoteClusterMetadataManifest(
+                ClusterMetadataManifest clusterMetadataManifest = remoteClusterStateService.getRemoteManifestManager().fetchRemoteClusterMetadataManifest(
                     clusterName,
                     clusterUUID,
                     blobMetadata.name()
@@ -190,7 +190,7 @@ public class RemoteClusterStateCleanupManager implements Closeable {
                 logger.info(filesToKeep);
             });
             staleManifestBlobMetadata.forEach(blobMetadata -> {
-                ClusterMetadataManifest clusterMetadataManifest = remoteClusterStateService.fetchRemoteClusterMetadataManifest(
+                ClusterMetadataManifest clusterMetadataManifest = remoteClusterStateService.getRemoteManifestManager().fetchRemoteClusterMetadataManifest(
                     clusterName,
                     clusterUUID,
                     blobMetadata.name()
@@ -252,7 +252,7 @@ public class RemoteClusterStateCleanupManager implements Closeable {
         try {
             getBlobStoreTransferService().listAllInSortedOrderAsync(
                 ThreadPool.Names.REMOTE_PURGE,
-                remoteClusterStateService.getManifestFolderPath(clusterName, clusterUUID),
+                remoteClusterStateService.getRemoteManifestManager().getManifestFolderPath(clusterName, clusterUUID),
                 MANIFEST_FILE_PREFIX,
                 Integer.MAX_VALUE,
                 new ActionListener<>() {
@@ -297,7 +297,7 @@ public class RemoteClusterStateCleanupManager implements Closeable {
         clusterUUIDs.forEach(
             clusterUUID -> getBlobStoreTransferService().deleteAsync(
                 ThreadPool.Names.REMOTE_PURGE,
-                remoteClusterStateService.getCusterMetadataBasePath(clusterName, clusterUUID),
+                RemoteClusterStateUtils.getCusterMetadataBasePath(remoteClusterStateService.getBlobStoreRepository(), clusterName, clusterUUID),
                 new ActionListener<>() {
                     @Override
                     public void onResponse(Void unused) {
@@ -324,7 +324,7 @@ public class RemoteClusterStateCleanupManager implements Closeable {
     void deleteStalePaths(String clusterName, String clusterUUID, List<String> stalePaths) throws IOException {
         logger.debug(String.format(Locale.ROOT, "Deleting stale files from remote - %s", stalePaths));
         getBlobStoreTransferService().deleteBlobs(
-            remoteClusterStateService.getCusterMetadataBasePath(clusterName, clusterUUID),
+            RemoteClusterStateUtils.getCusterMetadataBasePath(remoteClusterStateService.getBlobStoreRepository(), clusterName, clusterUUID),
             stalePaths
         );
     }

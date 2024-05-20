@@ -795,31 +795,6 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             return this;
         }
 
-        public Builder coordinationMetadata(UploadedMetadataAttribute coordinationMetadata) {
-            this.coordinationMetadata = coordinationMetadata;
-            return this;
-        }
-
-        public Builder settingMetadata(UploadedMetadataAttribute settingsMetadata) {
-            this.settingsMetadata = settingsMetadata;
-            return this;
-        }
-
-        public Builder templatesMetadata(UploadedMetadataAttribute templatesMetadata) {
-            this.templatesMetadata = templatesMetadata;
-            return this;
-        }
-
-        public Builder customMetadataMap(Map<String, UploadedMetadataAttribute> customMetadataMap) {
-            this.customMetadataMap = customMetadataMap;
-            return this;
-        }
-
-        public Builder put(String custom, UploadedMetadataAttribute customMetadata) {
-            this.customMetadataMap.put(custom, customMetadata);
-            return this;
-        }
-
         public Builder clusterTerm(long clusterTerm) {
             this.clusterTerm = clusterTerm;
             return this;
