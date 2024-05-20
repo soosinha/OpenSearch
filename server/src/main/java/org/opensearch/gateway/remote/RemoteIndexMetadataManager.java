@@ -20,6 +20,7 @@ import org.opensearch.core.action.ActionListener;
 import org.opensearch.index.remote.RemoteStoreUtils;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
+import org.opensearch.threadpool.ThreadPool;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -53,12 +54,14 @@ public class RemoteIndexMetadataManager {
     public static final String INDEX_PATH_TOKEN = "index";
 
     private final BlobStoreRepository blobStoreRepository;
+    private final ThreadPool threadPool;
 
     private volatile TimeValue indexMetadataUploadTimeout;
 
-    public RemoteIndexMetadataManager(BlobStoreRepository blobStoreRepository, ClusterSettings clusterSettings) {
+    public RemoteIndexMetadataManager(BlobStoreRepository blobStoreRepository, ClusterSettings clusterSettings, ThreadPool threadPool) {
         this.blobStoreRepository = blobStoreRepository;
         this.indexMetadataUploadTimeout = clusterSettings.get(INDEX_METADATA_UPLOAD_TIMEOUT_SETTING);
+        this.threadPool = threadPool;
         clusterSettings.addSettingsUpdateConsumer(INDEX_METADATA_UPLOAD_TIMEOUT_SETTING, this::setIndexMetadataUploadTimeout);
     }
 
@@ -98,6 +101,22 @@ public class RemoteIndexMetadataManager {
             blobStoreRepository.getCompressor(),
             completionListener,
             FORMAT_PARAMS
+        );
+    }
+
+    CheckedRunnable<IOException> getAsyncIndexMetadataReadAction(
+        String clusterName,
+        String clusterUUID,
+        String uploadedFilename,
+        LatchedActionListener<RemoteClusterStateUtils.RemoteReadResult> latchedActionListener
+    ) {
+        String[] splitPath = uploadedFilename.split("/");
+        return () -> INDEX_METADATA_FORMAT.readAsync(
+            indexMetadataContainer(clusterName, clusterUUID, splitPath[0]),
+            splitPath[splitPath.length - 1],
+            blobStoreRepository.getNamedXContentRegistry(),
+            threadPool.executor(ThreadPool.Names.GENERIC),
+            ActionListener.wrap(response -> latchedActionListener.onResponse(new RemoteClusterStateUtils.RemoteReadResult(response, INDEX_PATH_TOKEN, splitPath[0])), latchedActionListener::onFailure)
         );
     }
 

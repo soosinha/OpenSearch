@@ -21,6 +21,7 @@ import org.opensearch.core.xcontent.ToXContent;
 import org.opensearch.index.remote.RemoteStoreUtils;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
+import org.opensearch.threadpool.ThreadPool;
 
 import java.io.IOException;
 
@@ -30,6 +31,7 @@ import static org.opensearch.gateway.remote.RemoteClusterStateUtils.METADATA_NAM
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.getCusterMetadataBasePath;
 
 public class RemoteClusterStateAttributesManager {
+    public static final String CLUSTER_STATE_ATTRIBUTE = "cluster_state_attribute";
     public static final String DISCOVERY_NODES = "nodes";
     public static final String CLUSTER_BLOCKS = "blocks";
     public static final String CUSTOM_PREFIX = "custom";
@@ -45,9 +47,11 @@ public class RemoteClusterStateAttributesManager {
     );
     public static final int CLUSTER_STATE_ATTRIBUTES_CURRENT_CODEC_VERSION = 1;
     private final BlobStoreRepository blobStoreRepository;
+    private final ThreadPool threadPool;
 
-    RemoteClusterStateAttributesManager(BlobStoreRepository repository) {
-        blobStoreRepository = repository;
+    RemoteClusterStateAttributesManager(BlobStoreRepository repository, ThreadPool threadPool) {
+        this.blobStoreRepository = repository;
+        this.threadPool = threadPool;
     }
 
     /**
@@ -75,6 +79,24 @@ public class RemoteClusterStateAttributesManager {
             blobStoreRepository.getCompressor(),
             completionListener,
             FORMAT_PARAMS
+        );
+    }
+
+    public CheckedRunnable<IOException> getAsyncMetadataReadAction(
+        String clusterName,
+        String clusterUUID,
+        String component,
+        String uploadedFilename,
+        ChecksumBlobStoreFormat componentBlobStore,
+        LatchedActionListener<RemoteClusterStateUtils.RemoteReadResult> listener
+    ) {
+        String[] splitFilename = uploadedFilename.split("/");
+        return () -> componentBlobStore.readAsync(
+            clusterStateAttributeContainer(clusterName, clusterUUID),
+            splitFilename[splitFilename.length -1],
+            blobStoreRepository.getNamedXContentRegistry(),
+            threadPool.executor(ThreadPool.Names.GENERIC),
+            ActionListener.wrap(response -> listener.onResponse(new RemoteClusterStateUtils.RemoteReadResult((ToXContent) response, CLUSTER_STATE_ATTRIBUTE, component)), listener::onFailure)
         );
     }
 

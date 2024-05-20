@@ -13,6 +13,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.message.ParameterizedMessage;
 import org.opensearch.action.LatchedActionListener;
 import org.opensearch.cluster.ClusterState;
+import org.opensearch.cluster.block.ClusterBlocks;
 import org.opensearch.cluster.coordination.CoordinationMetadata;
 import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.cluster.metadata.Metadata;
@@ -25,8 +26,6 @@ import org.opensearch.cluster.routing.remote.RemoteRoutingTableService;
 import org.opensearch.cluster.node.DiscoveryNode;
 import org.opensearch.common.Nullable;
 import org.opensearch.common.blobstore.BlobContainer;
-import org.opensearch.common.blobstore.BlobMetadata;
-import org.opensearch.common.blobstore.BlobPath;
 import org.opensearch.common.blobstore.BlobStore;
 import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.Setting;
@@ -36,14 +35,15 @@ import org.opensearch.common.unit.TimeValue;
 import org.opensearch.common.util.io.IOUtils;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.core.xcontent.ToXContent;
+import org.opensearch.core.xcontent.XContentParser;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedIndexMetadata;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadataAttribute;
-import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.node.Node;
 import org.opensearch.node.remotestore.RemoteStoreNodeAttribute;
 import org.opensearch.repositories.RepositoriesService;
 import org.opensearch.repositories.Repository;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
+import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
 import org.opensearch.threadpool.ThreadPool;
 
 import java.io.Closeable;
@@ -51,7 +51,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -60,7 +59,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
@@ -68,30 +66,27 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static org.opensearch.gateway.PersistedClusterStateService.SLOW_WRITE_LOGGING_THRESHOLD;
+import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.CLUSTER_STATE_ATTRIBUTE;
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.METADATA_NAME_FORMAT;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.isRemoteRoutingTableEnabled;
 import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.CLUSTER_BLOCKS;
 import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.CLUSTER_BLOCKS_FORMAT;
 import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.DISCOVERY_NODES;
 import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.DISCOVERY_NODES_FORMAT;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.RemoteStateTransferException;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.UploadedMetadataResults;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.clusterUUIDContainer;
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.getCusterMetadataBasePath;
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.RemoteReadResult;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.COORDINATION_METADATA;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.COORDINATION_METADATA_FORMAT;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.CUSTOM_DELIMITER;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.CUSTOM_METADATA;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.CUSTOM_METADATA_FORMAT;
-import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.GLOBAL_METADATA_FORMAT;
-import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.GLOBAL_METADATA_PATH_TOKEN;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.SETTINGS_METADATA_FORMAT;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.SETTING_METADATA;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.TEMPLATES_METADATA;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.TEMPLATES_METADATA_FORMAT;
-import static org.opensearch.gateway.remote.RemoteIndexMetadataManager.INDEX_METADATA_FORMAT;
 import static org.opensearch.gateway.remote.RemoteIndexMetadataManager.INDEX_PATH_TOKEN;
-import static org.opensearch.gateway.remote.RemoteManifestManager.MANIFEST_PATH_TOKEN;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.isRemoteStoreClusterStateEnabled;
 
 /**
@@ -115,17 +110,16 @@ public class RemoteClusterStateService implements Closeable {
         Property.Final
     );
 
-    /**
-     * Setting to specify the interval to do run stale file cleanup job
-     */
-    public static final Setting<TimeValue> REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING = Setting.timeSetting(
-        "cluster.remote_store.state.cleanup_interval",
-        TimeValue.timeValueMinutes(5),
-        TimeValue.timeValueMillis(-1),
-        Property.NodeScope,
-        Property.Dynamic
+    public static final TimeValue REMOTE_STATE_READ_TIMEOUT_DEFAULT = TimeValue.timeValueMillis(20000);
+
+    public static final Setting<TimeValue> REMOTE_STATE_READ_TIMEOUT_SETTING = Setting.timeSetting(
+        "cluster.remote_store.state.read_timeout",
+        REMOTE_STATE_READ_TIMEOUT_DEFAULT,
+        Setting.Property.Dynamic,
+        Setting.Property.NodeScope
     );
 
+    private TimeValue remoteStateReadTimeout;
     private final String nodeId;
     private final Supplier<RepositoriesService> repositoriesService;
     private final Settings settings;
@@ -133,11 +127,9 @@ public class RemoteClusterStateService implements Closeable {
     private final ThreadPool threadpool;
     private final List<IndexMetadataUploadListener> indexMetadataUploadListeners;
     private BlobStoreRepository blobStoreRepository;
-    private BlobStoreTransferService blobStoreTransferService;
     private RemoteRoutingTableService remoteRoutingTableService;
     private volatile TimeValue slowWriteLoggingThreshold;
 
-    private final AtomicBoolean deleteStaleMetadataRunning = new AtomicBoolean(false);
     private final RemotePersistenceStats remoteStateStats;
     private RemoteClusterStateCleanupManager remoteClusterStateCleanupManager;
     private RemoteIndexMetadataManager remoteIndexMetadataManager;
@@ -145,14 +137,11 @@ public class RemoteClusterStateService implements Closeable {
     private RemoteClusterStateAttributesManager remoteClusterStateAttributesManager;
     private RemoteManifestManager remoteManifestManager;
     private ClusterSettings clusterSettings;
-    private TimeValue staleFileCleanupInterval;
     private final String CLUSTER_STATE_UPLOAD_TIME_LOG_STRING = "writing cluster state for version [{}] took [{}ms]";
     private final String METADATA_UPDATE_LOG_STRING = "wrote metadata for [{}] indices and skipped [{}] unchanged "
         + "indices, coordination metadata updated : [{}], settings metadata updated : [{}], templates metadata "
         + "updated : [{}], custom metadata updated : [{}]";
     public static final int INDEX_METADATA_CURRENT_CODEC_VERSION = 1;
-    public static final int MANIFEST_CURRENT_CODEC_VERSION = ClusterMetadataManifest.CODEC_V2;
-    public static final int GLOBAL_METADATA_CURRENT_CODEC_VERSION = 2;
 
     // ToXContent Params with gateway mode.
     // We are using gateway context mode to persist all custom metadata.
@@ -188,6 +177,8 @@ public class RemoteClusterStateService implements Closeable {
         clusterSettings = clusterService.getClusterSettings();
         this.slowWriteLoggingThreshold = clusterSettings.get(SLOW_WRITE_LOGGING_THRESHOLD);
         clusterSettings.addSettingsUpdateConsumer(SLOW_WRITE_LOGGING_THRESHOLD, this::setSlowWriteLoggingThreshold);
+        this.remoteStateReadTimeout = clusterSettings.get(REMOTE_STATE_READ_TIMEOUT_SETTING);
+        clusterSettings.addSettingsUpdateConsumer(REMOTE_STATE_READ_TIMEOUT_SETTING, this::setRemoteClusterStateEnabled);
         this.remoteStateStats = new RemotePersistenceStats();
 
         if(isRemoteRoutingTableEnabled(settings)) {
@@ -197,7 +188,6 @@ public class RemoteClusterStateService implements Closeable {
         } else {
             logger.info("REMOTE ROUTING DISABLED");
         }
-        this.staleFileCleanupInterval = clusterSettings.get(REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING);
         this.lastCleanupAttemptState = 0;
         this.isClusterManagerNode = DiscoveryNode.isClusterManagerNode(settings);
         this.remoteClusterStateCleanupManager = new RemoteClusterStateCleanupManager(this, clusterService);
@@ -297,7 +287,7 @@ public class RemoteClusterStateService implements Closeable {
         assert previousClusterState.metadata().coordinationMetadata().term() == clusterState.metadata().coordinationMetadata().term();
 
         final Map<String, UploadedMetadataAttribute> customsToBeDeletedFromRemote = new HashMap<>(previousManifest.getCustomMetadataMap());
-        final Map<String, Metadata.Custom> customsToUpload = getUpdatedCustoms(clusterState, previousClusterState);
+        final Map<String, Metadata.Custom> customsToUpload = remoteGlobalMetadataManager.getUpdatedCustoms(clusterState, previousClusterState);
         final Map<String, UploadedMetadataAttribute> allUploadedCustomMap = new HashMap<>(previousManifest.getCustomMetadataMap());
         for (final String custom : clusterState.metadata().customs().keySet()) {
             // remove all the customs which are present currently
@@ -455,31 +445,6 @@ public class RemoteClusterStateService implements Closeable {
             );
         }
         return manifest;
-    }
-
-    private Map<String, Metadata.Custom> getUpdatedCustoms(ClusterState currentState, ClusterState previousState) {
-        if (Metadata.isCustomMetadataEqual(previousState.metadata(), currentState.metadata())) {
-            return new HashMap<>();
-        }
-        Map<String, Metadata.Custom> updatedCustom = new HashMap<>();
-        Set<String> currentCustoms = new HashSet<>(currentState.metadata().customs().keySet());
-        for (Map.Entry<String, Metadata.Custom> cursor : previousState.metadata().customs().entrySet()) {
-            if (cursor.getValue().context().contains(Metadata.XContentContext.GATEWAY)) {
-                if (currentCustoms.contains(cursor.getKey())
-                    && !cursor.getValue().equals(currentState.metadata().custom(cursor.getKey()))) {
-                    // If the custom metadata is updated, we need to upload the new version.
-                    updatedCustom.put(cursor.getKey(), currentState.metadata().custom(cursor.getKey()));
-                }
-                currentCustoms.remove(cursor.getKey());
-            }
-        }
-        for (String custom : currentCustoms) {
-            Metadata.Custom cursor = currentState.metadata().custom(custom);
-            if (cursor.context().contains(Metadata.XContentContext.GATEWAY)) {
-                updatedCustom.put(custom, cursor);
-            }
-        }
-        return updatedCustom;
     }
 
     private UploadedMetadataResults writeMetadataInParallel(
@@ -794,24 +759,11 @@ public class RemoteClusterStateService implements Closeable {
         if(this.remoteRoutingTableService != null) {
             this.remoteRoutingTableService.start();
         }
-        remoteGlobalMetadataManager = new RemoteGlobalMetadataManager(blobStoreRepository, clusterSettings);
-        remoteIndexMetadataManager = new RemoteIndexMetadataManager(blobStoreRepository, clusterSettings);
-        remoteClusterStateAttributesManager = new RemoteClusterStateAttributesManager(blobStoreRepository);
+        remoteGlobalMetadataManager = new RemoteGlobalMetadataManager(blobStoreRepository, clusterSettings, threadpool);
+        remoteIndexMetadataManager = new RemoteIndexMetadataManager(blobStoreRepository, clusterSettings, threadpool);
+        remoteClusterStateAttributesManager = new RemoteClusterStateAttributesManager(blobStoreRepository, threadpool);
         remoteManifestManager = new RemoteManifestManager(blobStoreRepository, clusterSettings, nodeId);
         remoteClusterStateCleanupManager.start();
-    }
-
-    private String fetchPreviousClusterUUID(String clusterName, String clusterUUID) {
-        final Optional<ClusterMetadataManifest> latestManifest = remoteManifestManager.getLatestClusterMetadataManifest(
-            clusterName,
-            clusterUUID
-        );
-        if (!latestManifest.isPresent()) {
-            final String previousClusterUUID = getLastKnownUUIDFromRemote(clusterName);
-            assert !clusterUUID.equals(previousClusterUUID) : "Last cluster UUID is same current cluster UUID";
-            return previousClusterUUID;
-        }
-        return latestManifest.get().getPreviousClusterUUID();
     }
 
     private void setSlowWriteLoggingThreshold(TimeValue slowWriteLoggingThreshold) {
@@ -842,7 +794,7 @@ public class RemoteClusterStateService implements Closeable {
      * @param clusterName name of the cluster
      * @return {@link IndexMetadata}
      */
-    public ClusterState getLatestClusterState(String clusterName, String clusterUUID) {
+    public ClusterState getLatestClusterState(String clusterName, String clusterUUID) throws IOException {
         start();
         Optional<ClusterMetadataManifest> clusterMetadataManifest = remoteManifestManager.getLatestClusterMetadataManifest(
             clusterName,
@@ -857,40 +809,216 @@ public class RemoteClusterStateService implements Closeable {
         return getClusterStateForManifest(clusterName, clusterMetadataManifest.get(), nodeId);
     }
 
-    public ClusterState getClusterStateForManifest(String clusterName, ClusterMetadataManifest manifest, String localNodeId) {
-        // todo make this async
-        // Fetch Global Metadata
-        Metadata globalMetadata = remoteGlobalMetadataManager.getGlobalMetadata(clusterName, manifest.getClusterUUID(), manifest);
+    private ClusterState readClusterStateInParallel(
+        ClusterState previousState,
+        ClusterMetadataManifest manifest,
+        String clusterName,
+        String clusterUUID,
+        String localNodeId,
+        List<UploadedIndexMetadata> indicesToRead,
+        Map<String, UploadedMetadataAttribute> customToRead,
+        boolean readCoordinationMetadata,
+        boolean readSettingsMetadata,
+        boolean readTemplatesMetadata,
+        boolean readDiscoveryNodes,
+        boolean readClusterBlocks
+    ) throws IOException {
+        int totalReadTasks = indicesToRead.size() + customToRead.size() + (readCoordinationMetadata ? 1 : 0) + (readSettingsMetadata ? 1 : 0) + (readTemplatesMetadata ? 1 : 0) + (readDiscoveryNodes ? 1 : 0) + (readClusterBlocks ? 1 : 0);
+        CountDownLatch latch = new CountDownLatch(totalReadTasks);
+        List<CheckedRunnable<IOException>> asyncMetadataReadActions = new ArrayList<>();
+        List<RemoteReadResult> readResults = new ArrayList<>();
+        List<Exception> exceptionList = Collections.synchronizedList(new ArrayList<>(totalReadTasks));
 
-        // Fetch Index Metadata
-        Map<String, IndexMetadata> indices = remoteIndexMetadataManager.getIndexMetadataMap(
-            clusterName,
-            manifest.getClusterUUID(),
-            manifest
+        LatchedActionListener<RemoteClusterStateUtils.RemoteReadResult> listener = new LatchedActionListener<>(
+            ActionListener.wrap(
+                response -> {
+                    logger.info("Successfully read cluster state component from remote");
+                    readResults.add(response);
+                },
+                ex -> {
+                    logger.error("Failed to read cluster state from remote", ex);
+                    exceptionList.add(ex);
+                }
+            ),
+            latch
         );
-        DiscoveryNodes discoveryNodes = (DiscoveryNodes) remoteClusterStateAttributesManager.readMetadata(DISCOVERY_NODES_FORMAT, clusterName, manifest.getClusterUUID(), manifest.getDiscoveryNodesMetadata().getUploadedFilename());
 
-        Map<String, IndexMetadata> indexMetadataMap = new HashMap<>();
-        indices.values().forEach(indexMetadata -> { indexMetadataMap.put(indexMetadata.getIndex().getName(), indexMetadata); });
-
-        if(remoteRoutingTableService != null) {
-            logger.info(" The Remote Routing Table is fetching the Full Routing Table");
-            RoutingTable routingTable = remoteRoutingTableService.getFullRoutingTable(manifest.getRoutingTableVersion(), manifest.getIndicesRouting());
-            return ClusterState.builder(ClusterState.EMPTY_STATE)
-                .version(manifest.getStateVersion())
-                .stateUUID(manifest.getStateUUID())
-                .nodes(DiscoveryNodes.builder(discoveryNodes).localNodeId(localNodeId))
-                .metadata(Metadata.builder(globalMetadata).indices(indexMetadataMap).build())
-                .routingTable(routingTable)
-                .build();
+        for (UploadedIndexMetadata indexMetadata : indicesToRead) {
+            asyncMetadataReadActions.add(
+                remoteIndexMetadataManager.getAsyncIndexMetadataReadAction(
+                    clusterName,
+                    clusterUUID,
+                    indexMetadata.getUploadedFilename(),
+                    listener
+                )
+            );
         }
 
-        return ClusterState.builder(ClusterState.EMPTY_STATE)
+        for (Map.Entry<String, UploadedMetadataAttribute> entry : customToRead.entrySet()) {
+            asyncMetadataReadActions.add(
+                remoteGlobalMetadataManager.getAsyncMetadataReadAction(
+                    clusterName,
+                    clusterUUID,
+                    CUSTOM_METADATA,
+                    entry.getKey(),
+                    entry.getValue().getUploadedFilename(),
+                    new ChecksumBlobStoreFormat("custom", METADATA_NAME_FORMAT, (parser -> Metadata.Custom.fromXContent((XContentParser) parser, entry.getKey()))),
+                    listener
+                )
+            );
+        }
+
+        if (readCoordinationMetadata) {
+            asyncMetadataReadActions.add(
+                remoteGlobalMetadataManager.getAsyncMetadataReadAction(
+                    clusterName,
+                    clusterUUID,
+                    COORDINATION_METADATA,
+                    COORDINATION_METADATA,
+                    manifest.getCoordinationMetadata().getUploadedFilename(),
+                    COORDINATION_METADATA_FORMAT,
+                    listener
+                )
+            );
+        }
+
+        if (readSettingsMetadata) {
+            asyncMetadataReadActions.add(
+                remoteGlobalMetadataManager.getAsyncMetadataReadAction(
+                    clusterName,
+                    clusterUUID,
+                    SETTING_METADATA,
+                    SETTING_METADATA,
+                    manifest.getSettingsMetadata().getUploadedFilename(),
+                    SETTINGS_METADATA_FORMAT,
+                    listener
+                )
+            );
+        }
+
+        if (readTemplatesMetadata) {
+            asyncMetadataReadActions.add(
+                remoteGlobalMetadataManager.getAsyncMetadataReadAction(
+                    clusterName,
+                    clusterUUID,
+                    TEMPLATES_METADATA,
+                    TEMPLATES_METADATA,
+                    manifest.getTemplatesMetadata().getUploadedFilename(),
+                    TEMPLATES_METADATA_FORMAT,
+                    listener
+                )
+            );
+        }
+
+        if (readDiscoveryNodes) {
+            asyncMetadataReadActions.add(
+                remoteClusterStateAttributesManager.getAsyncMetadataReadAction(
+                    clusterName,
+                    clusterUUID,
+                    DISCOVERY_NODES,
+                    manifest.getDiscoveryNodesMetadata().getUploadedFilename(),
+                    DISCOVERY_NODES_FORMAT,
+                    listener
+                )
+            );
+        }
+
+        if (readClusterBlocks) {
+            asyncMetadataReadActions.add(
+                remoteClusterStateAttributesManager.getAsyncMetadataReadAction(
+                    clusterName,
+                    clusterUUID,
+                    CLUSTER_BLOCKS,
+                    manifest.getClusterBlocksMetadata().getUploadedFilename(),
+                    CLUSTER_BLOCKS_FORMAT,
+                    listener
+                )
+            );
+        }
+
+        for (CheckedRunnable<IOException> asyncMetadataReadAction : asyncMetadataReadActions) {
+            asyncMetadataReadAction.run();
+        }
+
+        try {
+            if (latch.await(this.remoteStateReadTimeout.getMillis(), TimeUnit.MILLISECONDS) == false) {
+                RemoteStateTransferException exception = new RemoteStateTransferException(
+                    "Timed out waiting to read cluster state from remote within timeout " + this.remoteStateReadTimeout
+                );
+                exceptionList.forEach(exception::addSuppressed);
+                throw exception;
+            }
+        } catch (InterruptedException e) {
+            exceptionList.forEach(e::addSuppressed);
+            RemoteStateTransferException ex = new RemoteStateTransferException("Interrupted while waiting to read cluster state from metadata");
+            Thread.currentThread().interrupt();
+            throw ex;
+        }
+
+        if (!exceptionList.isEmpty()) {
+            RemoteStateTransferException exception = new RemoteStateTransferException("Exception during reading cluster state from remote");
+            exceptionList.forEach(exception::addSuppressed);
+            throw exception;
+        }
+        ClusterState.Builder clusterStateBuilder = ClusterState.builder(previousState);
+        AtomicReference<DiscoveryNodes.Builder> discoveryNodesBuilder = new AtomicReference<>(DiscoveryNodes.builder());
+        Metadata.Builder metadataBuilder = Metadata.builder();
+        metadataBuilder.clusterUUID(manifest.getClusterUUID());
+        metadataBuilder.clusterUUIDCommitted(manifest.isClusterUUIDCommitted());
+        Map<String, IndexMetadata> indexMetadataMap = new HashMap<>();
+        readResults.forEach(remoteReadResult -> {
+            switch (remoteReadResult.getComponent()) {
+                case INDEX_PATH_TOKEN:
+                    IndexMetadata indexMetadata = (IndexMetadata) remoteReadResult.getObj();
+                    indexMetadataMap.put(indexMetadata.getIndex().getName(), indexMetadata);
+                    break;
+                case CUSTOM_METADATA:
+                    metadataBuilder.putCustom(remoteReadResult.getComponentName(), (Metadata.Custom) remoteReadResult.getObj());
+                    break;
+                case COORDINATION_METADATA:
+                    metadataBuilder.coordinationMetadata((CoordinationMetadata) remoteReadResult.getObj());
+                    break;
+                case SETTING_METADATA:
+                    metadataBuilder.persistentSettings((Settings) remoteReadResult.getObj());
+                    break;
+                case TEMPLATES_METADATA:
+                    metadataBuilder.templates((TemplatesMetadata) remoteReadResult.getObj());
+                    break;
+                case CLUSTER_STATE_ATTRIBUTE:
+                    if (remoteReadResult.getComponentName().equals(DISCOVERY_NODES)) {
+                        discoveryNodesBuilder.set(DiscoveryNodes.builder((DiscoveryNodes) remoteReadResult.getObj()));
+                    } else if (remoteReadResult.getComponentName().equals(CLUSTER_BLOCKS)) {
+                        clusterStateBuilder.blocks((ClusterBlocks) remoteReadResult.getObj());
+                    }
+                    break;
+                default:
+                    throw new IllegalStateException("Unknown component: " + remoteReadResult.getComponent());
+            }
+        });
+        metadataBuilder.indices(indexMetadataMap);
+        return clusterStateBuilder.metadata(metadataBuilder)
+            .nodes(discoveryNodesBuilder.get().localNodeId(localNodeId))
             .version(manifest.getStateVersion())
             .stateUUID(manifest.getStateUUID())
-            .nodes(DiscoveryNodes.builder(discoveryNodes).localNodeId(localNodeId))
-            .metadata(Metadata.builder(globalMetadata).indices(indexMetadataMap).build())
             .build();
+    }
+
+    public ClusterState getClusterStateForManifest(String clusterName, ClusterMetadataManifest manifest, String localNodeId) throws IOException {
+        // todo make this async
+        return readClusterStateInParallel(
+            ClusterState.EMPTY_STATE,
+            manifest,
+            clusterName,
+            manifest.getClusterUUID(),
+            localNodeId,
+            manifest.getIndices(),
+            manifest.getCustomMetadataMap(),
+            manifest.getCoordinationMetadata() != null,
+            manifest.getSettingsMetadata() != null,
+            manifest.getTemplatesMetadata() != null,
+            manifest.getDiscoveryNodesMetadata() != null,
+            manifest.getClusterBlocksMetadata() != null
+        );
     }
 
     public ClusterState getClusterStateUsingDiff(String clusterName, ClusterMetadataManifest manifest, ClusterState previousState, String localNodeId) {
@@ -976,6 +1104,10 @@ public class RemoteClusterStateService implements Closeable {
                 e
             );
         }
+    }
+
+    public void setRemoteClusterStateEnabled(TimeValue remoteStateReadTimeout) {
+        this.remoteStateReadTimeout = remoteStateReadTimeout;
     }
 
 

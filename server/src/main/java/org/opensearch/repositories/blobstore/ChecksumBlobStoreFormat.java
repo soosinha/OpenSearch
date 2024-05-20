@@ -44,9 +44,11 @@ import org.opensearch.cluster.metadata.Metadata;
 import org.opensearch.common.CheckedFunction;
 import org.opensearch.common.blobstore.AsyncMultiStreamBlobContainer;
 import org.opensearch.common.blobstore.BlobContainer;
+import org.opensearch.common.blobstore.stream.read.ReadContext;
 import org.opensearch.common.blobstore.stream.write.WritePriority;
 import org.opensearch.common.blobstore.transfer.RemoteTransferContainer;
 import org.opensearch.common.blobstore.transfer.stream.OffsetRangeIndexInputStream;
+import org.opensearch.common.io.InputStreamContainer;
 import org.opensearch.common.io.Streams;
 import org.opensearch.common.lucene.store.ByteArrayIndexInput;
 import org.opensearch.common.xcontent.LoggingDeprecationHandler;
@@ -61,12 +63,20 @@ import org.opensearch.core.xcontent.XContentParser;
 import org.opensearch.gateway.CorruptStateException;
 import org.opensearch.index.store.exception.ChecksumCombinationException;
 import org.opensearch.snapshots.SnapshotInfo;
+import org.opensearch.threadpool.ThreadPool;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.SequenceInputStream;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.stream.Collectors;
 
 import static org.opensearch.common.blobstore.transfer.RemoteTransferContainer.checksumOfChecksum;
 
@@ -115,17 +125,16 @@ public final class ChecksumBlobStoreFormat<T extends ToXContent> extends BaseBlo
      * @param name          name to be translated into
      * @return parsed blob object
      */
-    public T read(BlobContainer blobContainer, String name, NamedXContentRegistry namedXContentRegistry) throws IOException {
-        String blobName = blobName(name);
+    public T read(BlobContainer blobContainer, String name, NamedXContentRegistry namedXContentRegistry) throws IOException {String blobName = blobName(name);
         return deserialize(blobName, namedXContentRegistry, Streams.readFully(blobContainer.readBlob(blobName)));
     }
 
-    public CompletableFuture<T> readAsync(BlobContainer blobContainer, String name, NamedXContentRegistry namedXContentRegistry) throws IOException {
-        return CompletableFuture.supplyAsync(() -> {
+    public void readAsync(BlobContainer blobContainer, String name, NamedXContentRegistry namedXContentRegistry, ExecutorService executorService, ActionListener<T> listener) throws IOException {
+        executorService.execute(() -> {
             try {
-                return ChecksumBlobStoreFormat.this.read(blobContainer, name, namedXContentRegistry);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
+                listener.onResponse(read(blobContainer, name, namedXContentRegistry));
+            } catch (Exception e) {
+                listener.onFailure(e);
             }
         });
     }

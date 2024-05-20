@@ -104,4 +104,28 @@ public class RemoteClusterStateUtils {
             this.uploadedClusterBlocks = null;
         }
     }
+
+    static class RemoteReadResult {
+        ToXContent obj;
+        String component;
+        String componentName;
+
+        public RemoteReadResult(ToXContent obj, String component, String componentName) {
+            this.obj = obj;
+            this.component = component;
+            this.componentName = componentName;
+        }
+
+        public ToXContent getObj() {
+            return obj;
+        }
+
+        public String getComponent() {
+            return component;
+        }
+
+        public String getComponentName() {
+            return componentName;
+        }
+    }
 }

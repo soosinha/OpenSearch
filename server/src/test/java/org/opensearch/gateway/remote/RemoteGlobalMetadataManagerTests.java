@@ -14,6 +14,8 @@ import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.test.OpenSearchTestCase;
 import org.junit.After;
 import org.junit.Before;
+import org.opensearch.threadpool.TestThreadPool;
+import org.opensearch.threadpool.ThreadPool;
 
 import static org.mockito.Mockito.mock;
 
@@ -21,12 +23,13 @@ public class RemoteGlobalMetadataManagerTests extends OpenSearchTestCase {
     private RemoteGlobalMetadataManager remoteGlobalMetadataManager;
     private ClusterSettings clusterSettings;
     private BlobStoreRepository blobStoreRepository;
+    private final ThreadPool threadPool = new TestThreadPool(getClass().getName());
 
     @Before
     public void setup() {
         clusterSettings = new ClusterSettings(Settings.EMPTY, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
         blobStoreRepository = mock(BlobStoreRepository.class);
-        remoteGlobalMetadataManager = new RemoteGlobalMetadataManager(blobStoreRepository, clusterSettings);
+        remoteGlobalMetadataManager = new RemoteGlobalMetadataManager(blobStoreRepository, clusterSettings, threadPool);
     }
 
     @After

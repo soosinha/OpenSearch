@@ -24,13 +24,17 @@ import org.opensearch.core.xcontent.ToXContent;
 import org.opensearch.index.remote.RemoteStoreUtils;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
+import org.opensearch.threadpool.ThreadPool;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 
 import static java.util.Objects.requireNonNull;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
@@ -89,12 +93,14 @@ public class RemoteGlobalMetadataManager {
     public static final int GLOBAL_METADATA_CURRENT_CODEC_VERSION = 1;
 
     private final BlobStoreRepository blobStoreRepository;
+    private final ThreadPool threadPool;
 
     private volatile TimeValue globalMetadataUploadTimeout;
 
-    RemoteGlobalMetadataManager(BlobStoreRepository blobStoreRepository, ClusterSettings clusterSettings) {
+    RemoteGlobalMetadataManager(BlobStoreRepository blobStoreRepository, ClusterSettings clusterSettings, ThreadPool threadPool) {
         this.blobStoreRepository = blobStoreRepository;
         this.globalMetadataUploadTimeout = clusterSettings.get(GLOBAL_METADATA_UPLOAD_TIMEOUT_SETTING);
+        this.threadPool = threadPool;
         clusterSettings.addSettingsUpdateConsumer(GLOBAL_METADATA_UPLOAD_TIMEOUT_SETTING, this::setGlobalMetadataUploadTimeout);
     }
 
@@ -126,6 +132,25 @@ public class RemoteGlobalMetadataManager {
             blobStoreRepository.getCompressor(),
             completionListener,
             FORMAT_PARAMS
+        );
+    }
+
+    CheckedRunnable<IOException> getAsyncMetadataReadAction(
+        String clusterName,
+        String clusterUUID,
+        String component,
+        String componentName,
+        String uploadFilename,
+        ChecksumBlobStoreFormat componentBlobStore,
+        LatchedActionListener<RemoteClusterStateUtils.RemoteReadResult> listener
+    ) {
+        String[] splitName = uploadFilename.split("/");
+        return () -> componentBlobStore.readAsync(
+            globalMetadataContainer(clusterName, clusterUUID),
+            splitName[splitName.length - 1],
+            blobStoreRepository.getNamedXContentRegistry(),
+            threadPool.executor(ThreadPool.Names.GENERIC),
+            ActionListener.wrap(response -> listener.onResponse(new RemoteClusterStateUtils.RemoteReadResult((ToXContent) response, component, componentName)), listener::onFailure)
         );
     }
 

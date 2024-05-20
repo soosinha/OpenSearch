@@ -44,10 +44,12 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.Reader;
+import java.io.SequenceInputStream;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -219,6 +221,11 @@ public abstract class Streams {
         BytesStreamOutput out = new BytesStreamOutput();
         org.opensearch.common.util.io.Streams.copy(in, out);
         return out.bytes();
+    }
+
+    public static BytesReference readStreamList(List<InputStream> streams) throws IOException {
+        SequenceInputStream sis = new SequenceInputStream(Collections.enumeration(streams));
+        return readFully(sis);
     }
 
     /**
