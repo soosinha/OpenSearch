@@ -89,6 +89,33 @@ public class ClusterMetadataManifestTests extends OpenSearchTestCase {
         }
     }
 
+    public void testClusterMetadataManifestXContentV1() throws IOException {
+        UploadedIndexMetadata uploadedIndexMetadata = new UploadedIndexMetadata("test-index", "test-uuid", "/test/upload/path");
+        ClusterMetadataManifest originalManifest = ClusterMetadataManifest.builder()
+            .clusterTerm(1L)
+            .stateVersion(1L)
+            .clusterUUID("test-cluster-uuid")
+            .stateUUID("test-state-uuid")
+            .opensearchVersion(Version.CURRENT)
+            .nodeId("test-node-id")
+            .committed(false)
+            .codecVersion(CODEC_V1)
+            .globalMetadataFileName("test-global-metadata-file")
+            .indices(Collections.singletonList(uploadedIndexMetadata))
+            .previousClusterUUID("prev-cluster-uuid")
+            .clusterUUIDCommitted(true)
+            .build();
+        final XContentBuilder builder = JsonXContent.contentBuilder();
+        builder.startObject();
+        originalManifest.toXContent(builder, ToXContent.EMPTY_PARAMS);
+        builder.endObject();
+
+        try (XContentParser parser = createParser(JsonXContent.jsonXContent, BytesReference.bytes(builder))) {
+            final ClusterMetadataManifest fromXContentManifest = ClusterMetadataManifest.fromXContentV1(parser);
+            assertEquals(originalManifest, fromXContentManifest);
+        }
+    }
+
     public void testClusterMetadataManifestXContent() throws IOException {
         UploadedIndexMetadata uploadedIndexMetadata = new UploadedIndexMetadata("test-index", "test-uuid", "/test/upload/path");
         ClusterMetadataManifest originalManifest = new ClusterMetadataManifest(

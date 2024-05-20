@@ -24,9 +24,9 @@ import java.util.Objects;
 /**
  * Metadata for legacy templates
  *
- * @opensearch.internal
+ * @opensearch.api
  */
-@PublicApi(since = "1.0.0")
+@PublicApi(since = "2.15.0")
 public class TemplatesMetadata extends AbstractDiffable<TemplatesMetadata> implements ToXContentFragment {
     public static TemplatesMetadata EMPTY_METADATA = builder().build();
     private final Map<String, IndexTemplateMetadata> templates;
@@ -85,7 +85,7 @@ public class TemplatesMetadata extends AbstractDiffable<TemplatesMetadata> imple
      *
      * @opensearch.api
      */
-    @PublicApi(since = "1.0.0")
+    @PublicApi(since = "2.15.0")
     public static class Builder {
         private final Map<String, IndexTemplateMetadata> templates;
 

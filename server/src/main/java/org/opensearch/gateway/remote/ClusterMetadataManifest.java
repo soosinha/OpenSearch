@@ -68,6 +68,33 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
     private static final ParseField ROUTING_TABLE_VERSION_FIELD = new ParseField("routing_table_version");
     private static final ParseField INDICES_ROUTING_FIELD = new ParseField("indices_routing");
 
+    private static ClusterMetadataManifest.Builder manifestV0Builder(Object[] fields) {
+        return ClusterMetadataManifest.builder()
+            .clusterTerm(term(fields))
+            .stateVersion(version(fields))
+            .clusterUUID(clusterUUID(fields))
+            .stateUUID(stateUUID(fields))
+            .opensearchVersion(opensearchVersion(fields))
+            .nodeId(nodeId(fields))
+            .committed(committed(fields))
+            .codecVersion(CODEC_V0)
+            .indices(indices(fields))
+            .previousClusterUUID(previousClusterUUID(fields))
+            .clusterUUIDCommitted(clusterUUIDCommitted(fields));
+    }
+
+    private static ClusterMetadataManifest.Builder manifestV1Builder(Object[] fields) {
+        return manifestV0Builder(fields).codecVersion(codecVersion(fields)).globalMetadataFileName(globalMetadataFileName(fields));
+    }
+
+    private static ClusterMetadataManifest.Builder manifestV2Builder(Object[] fields) {
+        return manifestV0Builder(fields).codecVersion(codecVersion(fields))
+            .coordinationMetadata(coordinationMetadata(fields))
+            .settingMetadata(settingsMetadata(fields))
+            .templatesMetadata(templatesMetadata(fields))
+            .customMetadataMap(customMetadata(fields));
+    }
+
     private static long term(Object[] fields) {
         return (long) fields[0];
     }
@@ -155,58 +182,17 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
 
     private static final ConstructingObjectParser<ClusterMetadataManifest, Void> PARSER_V0 = new ConstructingObjectParser<>(
         "cluster_metadata_manifest",
-        fields -> ClusterMetadataManifest.builder()
-            .clusterTerm(term(fields))
-            .stateVersion(version(fields))
-            .clusterUUID(clusterUUID(fields))
-            .stateUUID(stateUUID(fields))
-            .opensearchVersion(opensearchVersion(fields))
-            .nodeId(nodeId(fields))
-            .committed(committed(fields))
-            .codecVersion(CODEC_V0)
-            .indices(indices(fields))
-            .previousClusterUUID(previousClusterUUID(fields))
-            .clusterUUIDCommitted(clusterUUIDCommitted(fields))
-            .build()
+        fields -> manifestV0Builder(fields).build()
     );
 
     private static final ConstructingObjectParser<ClusterMetadataManifest, Void> PARSER_V1 = new ConstructingObjectParser<>(
         "cluster_metadata_manifest",
-        fields -> ClusterMetadataManifest.builder()
-            .clusterTerm(term(fields))
-            .stateVersion(version(fields))
-            .clusterUUID(clusterUUID(fields))
-            .stateUUID(stateUUID(fields))
-            .opensearchVersion(opensearchVersion(fields))
-            .nodeId(nodeId(fields))
-            .committed(committed(fields))
-            .codecVersion(codecVersion(fields))
-            .globalMetadataFileName(globalMetadataFileName(fields))
-            .indices(indices(fields))
-            .previousClusterUUID(previousClusterUUID(fields))
-            .clusterUUIDCommitted(clusterUUIDCommitted(fields))
-            .build()
+        fields -> manifestV1Builder(fields).build()
     );
 
     private static final ConstructingObjectParser<ClusterMetadataManifest, Void> PARSER_V2 = new ConstructingObjectParser<>(
         "cluster_metadata_manifest",
-        fields -> ClusterMetadataManifest.builder()
-            .clusterTerm(term(fields))
-            .stateVersion(version(fields))
-            .clusterUUID(clusterUUID(fields))
-            .stateUUID(stateUUID(fields))
-            .opensearchVersion(opensearchVersion(fields))
-            .nodeId(nodeId(fields))
-            .committed(committed(fields))
-            .codecVersion(codecVersion(fields))
-            .indices(indices(fields))
-            .previousClusterUUID(previousClusterUUID(fields))
-            .clusterUUIDCommitted(clusterUUIDCommitted(fields))
-            .coordinationMetadata(coordinationMetadata(fields))
-            .settingMetadata(settingsMetadata(fields))
-            .templatesMetadata(templatesMetadata(fields))
-            .customMetadataMap(customMetadata(fields))
-            .build()
+        fields -> manifestV2Builder(fields).build()
     );
 
     private static final ConstructingObjectParser<ClusterMetadataManifest, Void> PARSER_V3 = new ConstructingObjectParser<>(
@@ -258,6 +244,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             .indicesRouting(indicesRouting(fields))
             .build()
     );
+
     private static final ConstructingObjectParser<ClusterMetadataManifest, Void> CURRENT_PARSER = PARSER_V4;
 
     static {
@@ -780,6 +767,31 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
 
         public Builder globalMetadataFileName(String globalMetadataFileName) {
             this.globalMetadataFileName = globalMetadataFileName;
+            return this;
+        }
+
+        public Builder coordinationMetadata(UploadedMetadataAttribute coordinationMetadata) {
+            this.coordinationMetadata = coordinationMetadata;
+            return this;
+        }
+
+        public Builder settingMetadata(UploadedMetadataAttribute settingsMetadata) {
+            this.settingsMetadata = settingsMetadata;
+            return this;
+        }
+
+        public Builder templatesMetadata(UploadedMetadataAttribute templatesMetadata) {
+            this.templatesMetadata = templatesMetadata;
+            return this;
+        }
+
+        public Builder customMetadataMap(Map<String, UploadedMetadataAttribute> customMetadataMap) {
+            this.customMetadataMap = customMetadataMap;
+            return this;
+        }
+
+        public Builder put(String custom, UploadedMetadataAttribute customMetadata) {
+            this.customMetadataMap.put(custom, customMetadata);
             return this;
         }
 
