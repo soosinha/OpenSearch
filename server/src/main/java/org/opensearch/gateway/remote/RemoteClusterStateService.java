@@ -997,7 +997,7 @@ public class RemoteClusterStateService implements Closeable {
         });
         metadataBuilder.indices(indexMetadataMap);
         if (readDiscoveryNodes) {
-            clusterStateBuilder.nodes(discoveryNodesBuilder.get().localNodeId(localNodeId))
+            clusterStateBuilder.nodes(discoveryNodesBuilder.get().localNodeId(localNodeId));
         }
         return clusterStateBuilder.metadata(metadataBuilder)
             .version(manifest.getStateVersion())
