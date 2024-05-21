@@ -187,7 +187,6 @@ public class RemoteClusterStateCleanupManager implements Closeable {
                     filesToKeep.add(clusterMetadataManifest.getTemplatesMetadata().getUploadedFilename());
                     clusterMetadataManifest.getCustomMetadataMap().values().forEach(attribute -> filesToKeep.add(attribute.getUploadedFilename()));
                 }
-                logger.info(filesToKeep);
             });
             staleManifestBlobMetadata.forEach(blobMetadata -> {
                 ClusterMetadataManifest clusterMetadataManifest = remoteClusterStateService.getRemoteManifestManager().fetchRemoteClusterMetadataManifest(

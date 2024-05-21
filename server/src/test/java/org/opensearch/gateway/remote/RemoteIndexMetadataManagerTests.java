@@ -14,6 +14,7 @@ import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.test.OpenSearchTestCase;
 import org.junit.After;
 import org.junit.Before;
+import org.opensearch.threadpool.TestThreadPool;
 
 import static org.mockito.Mockito.mock;
 
@@ -26,7 +27,7 @@ public class RemoteIndexMetadataManagerTests extends OpenSearchTestCase {
     public void setup() {
         clusterSettings = new ClusterSettings(Settings.EMPTY, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
         blobStoreRepository = mock(BlobStoreRepository.class);
-        remoteIndexMetadataManager = new RemoteIndexMetadataManager(blobStoreRepository, clusterSettings);
+        remoteIndexMetadataManager = new RemoteIndexMetadataManager(blobStoreRepository, clusterSettings, new TestThreadPool("test"));
     }
 
     @After

@@ -59,18 +59,19 @@ import static org.opensearch.gateway.remote.RemoteClusterStateCleanupManager.CLU
 import static org.opensearch.gateway.remote.RemoteClusterStateCleanupManager.REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING;
 import static org.opensearch.gateway.remote.RemoteClusterStateCleanupManager.RETAINED_MANIFESTS;
 import static org.opensearch.gateway.remote.RemoteClusterStateCleanupManager.SKIP_CLEANUP_STATE_CHANGES;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.CLUSTER_STATE_PATH_TOKEN;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.COORDINATION_METADATA;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.DELIMITER;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.GLOBAL_METADATA_PATH_TOKEN;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.INDEX_PATH_TOKEN;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.MANIFEST_FILE_PREFIX;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.MANIFEST_PATH_TOKEN;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.SETTING_METADATA;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.TEMPLATES_METADATA;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.encodeString;
 import static org.opensearch.gateway.remote.RemoteClusterStateServiceTests.generateClusterStateWithOneIndex;
 import static org.opensearch.gateway.remote.RemoteClusterStateServiceTests.nodesWithLocalNodeClusterManager;
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.CLUSTER_STATE_PATH_TOKEN;
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.encodeString;
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.getCusterMetadataBasePath;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.COORDINATION_METADATA;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.GLOBAL_METADATA_PATH_TOKEN;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.SETTING_METADATA;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.TEMPLATES_METADATA;
+import static org.opensearch.gateway.remote.RemoteIndexMetadataManager.INDEX_PATH_TOKEN;
+import static org.opensearch.gateway.remote.RemoteManifestManager.MANIFEST_FILE_PREFIX;
+import static org.opensearch.gateway.remote.RemoteManifestManager.MANIFEST_PATH_TOKEN;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.REMOTE_STORE_CLUSTER_STATE_REPOSITORY_NAME_ATTRIBUTE_KEY;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.REMOTE_STORE_REPOSITORY_SETTINGS_ATTRIBUTE_KEY_PREFIX;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.REMOTE_STORE_REPOSITORY_TYPE_ATTRIBUTE_KEY_FORMAT;
@@ -207,7 +208,7 @@ public class RemoteClusterStateCleanupManagerTests extends OpenSearchTestCase {
             .templatesMetadata(templateMetadataUpdated)
             .build();
 
-        when(remoteClusterStateService.fetchRemoteClusterMetadataManifest(eq(clusterName), eq(clusterUUID), any()))
+        when(remoteClusterStateService.getRemoteManifestManager().fetchRemoteClusterMetadataManifest(eq(clusterName), eq(clusterUUID), any()))
             .thenReturn(manifest4, manifest5, manifest1, manifest2, manifest3);
         BlobContainer container = mock(BlobContainer.class);
         when(blobStore.blobContainer(any())).thenReturn(container);
@@ -273,7 +274,7 @@ public class RemoteClusterStateCleanupManagerTests extends OpenSearchTestCase {
         ).thenReturn(List.of(new PlainBlobMetadata("mainfest3", 1L)));
         Set<String> uuids = new HashSet<>(Arrays.asList("cluster-uuid1", "cluster-uuid2", "cluster-uuid3"));
         when(remoteClusterStateService.getAllClusterUUIDs(any())).thenReturn(uuids);
-        when(remoteClusterStateService.getCusterMetadataBasePath(any(), any())).then(
+        when(getCusterMetadataBasePath(any(), any(), any())).then(
             invocationOnMock -> blobPath.add(encodeString(invocationOnMock.getArgument(0)))
                 .add(CLUSTER_STATE_PATH_TOKEN)
                 .add((String) invocationOnMock.getArgument(1))

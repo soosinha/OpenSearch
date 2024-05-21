@@ -89,7 +89,6 @@ import org.mockito.ArgumentMatchers;
 
 import static java.util.stream.Collectors.toList;
 import static org.opensearch.common.util.FeatureFlags.REMOTE_ROUTING_TABLE_EXPERIMENTAL;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING;
 import static org.opensearch.gateway.remote.RemoteClusterStateService.RETAINED_MANIFESTS;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.FORMAT_PARAMS;
@@ -98,7 +97,6 @@ import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.COORDINA
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.SETTING_METADATA;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.TEMPLATES_METADATA;
 import static org.opensearch.gateway.remote.RemoteManifestManager.MANIFEST_CURRENT_CODEC_VERSION;
-import static org.opensearch.gateway.remote.RemoteManifestManager.MANIFEST_FILE_PREFIX;
 import static org.opensearch.node.NodeRoleSettings.NODE_ROLES_SETTING;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.REMOTE_STORE_CLUSTER_STATE_REPOSITORY_NAME_ATTRIBUTE_KEY;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.REMOTE_STORE_REPOSITORY_SETTINGS_ATTRIBUTE_KEY_PREFIX;
@@ -125,6 +123,7 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
     private RepositoriesService repositoriesService;
     private BlobStoreRepository blobStoreRepository;
     private BlobStore blobStore;
+    private Settings settings;
     private final ThreadPool threadPool = new TestThreadPool(getClass().getName());
 
     @Before
@@ -144,7 +143,7 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
             "remote_store_repository"
         );
 
-        Settings settings = Settings.builder()
+        settings = Settings.builder()
             .put("node.attr." + REMOTE_STORE_CLUSTER_STATE_REPOSITORY_NAME_ATTRIBUTE_KEY, "remote_store_repository")
             .put(stateRepoTypeAttributeKey, FsRepository.TYPE)
             .put(stateRepoSettingsAttributeKeyPrefix + "location", "randomRepoPath")
@@ -173,7 +172,8 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
             settings,
             clusterService,
             () -> 0L,
-            threadPool
+            threadPool,
+            List.of(new RemoteIndexPathUploader(threadPool, settings, repositoriesServiceSupplier, clusterSettings))
         );
     }
 
@@ -201,7 +201,8 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
                 settings,
                 clusterService,
                 () -> 0L,
-                threadPool
+                threadPool,
+                List.of(new RemoteIndexPathUploader(threadPool, settings, repositoriesServiceSupplier, clusterSettings))
             )
         );
     }
@@ -1278,102 +1279,6 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
         assertEquals(0, remoteClusterStateService.getStats().getFailedCount());
     }
 
-    public void testRemoteStateCleanupFailureStats() throws IOException {
-        BlobContainer blobContainer = mock(BlobContainer.class);
-        doThrow(IOException.class).when(blobContainer).delete();
-        when(blobStore.blobContainer(any())).thenReturn(blobContainer);
-        BlobPath blobPath = new BlobPath().add("random-path");
-        when((blobStoreRepository.basePath())).thenReturn(blobPath);
-        remoteClusterStateService.start();
-        remoteClusterStateService.deleteStaleUUIDsClusterMetadata("cluster1", Arrays.asList("cluster-uuid1"));
-        try {
-            assertBusy(() -> {
-                // wait for stats to get updated
-                assertTrue(remoteClusterStateService.getStats() != null);
-                assertEquals(0, remoteClusterStateService.getStats().getSuccessCount());
-                assertEquals(1, remoteClusterStateService.getStats().getCleanupAttemptFailedCount());
-            });
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    public void testSingleConcurrentExecutionOfStaleManifestCleanup() throws Exception {
-        BlobContainer blobContainer = mock(BlobContainer.class);
-        BlobPath blobPath = new BlobPath().add("random-path");
-        when((blobStoreRepository.basePath())).thenReturn(blobPath);
-        when(blobStore.blobContainer(any())).thenReturn(blobContainer);
-
-        CountDownLatch latch = new CountDownLatch(1);
-        AtomicInteger callCount = new AtomicInteger(0);
-        doAnswer(invocation -> {
-            callCount.incrementAndGet();
-            if (latch.await(5000, TimeUnit.SECONDS) == false) {
-                throw new Exception("Timed out waiting for delete task queuing to complete");
-            }
-            return null;
-        }).when(blobContainer)
-            .listBlobsByPrefixInSortedOrder(
-                any(String.class),
-                any(int.class),
-                any(BlobContainer.BlobNameSortOrder.class),
-                any(ActionListener.class)
-            );
-
-        remoteClusterStateService.start();
-        remoteClusterStateService.deleteStaleClusterMetadata("cluster-name", "cluster-uuid", RETAINED_MANIFESTS);
-        remoteClusterStateService.deleteStaleClusterMetadata("cluster-name", "cluster-uuid", RETAINED_MANIFESTS);
-
-        latch.countDown();
-        assertBusy(() -> assertEquals(1, callCount.get()));
-    }
-
-    public void testRemoteCleanupTaskScheduled() {
-        AbstractAsyncTask cleanupTask = remoteClusterStateService.getStaleFileDeletionTask();
-        assertNull(cleanupTask);
-
-        remoteClusterStateService.start();
-        assertNotNull(remoteClusterStateService.getStaleFileDeletionTask());
-        assertTrue(remoteClusterStateService.getStaleFileDeletionTask().mustReschedule());
-        assertEquals(
-            clusterSettings.get(REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING),
-            remoteClusterStateService.getStaleFileDeletionTask().getInterval()
-        );
-        assertTrue(remoteClusterStateService.getStaleFileDeletionTask().isScheduled());
-        assertFalse(remoteClusterStateService.getStaleFileDeletionTask().isClosed());
-    }
-
-    public void testRemoteCleanupNotInitializedOnDataOnlyNode() {
-        String stateRepoTypeAttributeKey = String.format(
-            Locale.getDefault(),
-            "node.attr." + REMOTE_STORE_REPOSITORY_TYPE_ATTRIBUTE_KEY_FORMAT,
-            "remote_store_repository"
-        );
-        String stateRepoSettingsAttributeKeyPrefix = String.format(
-            Locale.getDefault(),
-            "node.attr." + REMOTE_STORE_REPOSITORY_SETTINGS_ATTRIBUTE_KEY_PREFIX,
-            "remote_store_repository"
-        );
-        Settings settings = Settings.builder()
-            .put("node.attr." + REMOTE_STORE_CLUSTER_STATE_REPOSITORY_NAME_ATTRIBUTE_KEY, "remote_store_repository")
-            .putList(NODE_ROLES_SETTING.getKey(), "d")
-            .put(stateRepoTypeAttributeKey, FsRepository.TYPE)
-            .put(stateRepoSettingsAttributeKeyPrefix + "location", "randomRepoPath")
-            .put(RemoteClusterStateService.REMOTE_CLUSTER_STATE_ENABLED_SETTING.getKey(), true)
-            .build();
-        ClusterSettings dataNodeClusterSettings = new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
-        remoteClusterStateService = new RemoteClusterStateService(
-            "test-node-id",
-            repositoriesServiceSupplier,
-            settings,
-            dataNodeClusterSettings,
-            () -> 0L,
-            threadPool
-        );
-        remoteClusterStateService.start();
-        assertNull(remoteClusterStateService.getStaleFileDeletionTask());
-    }
-
     public void testRemoteRoutingTableNotInitializedWhenDisabled() {
        assertNull(remoteClusterStateService.getRemoteRoutingTableService());
     }
@@ -1394,9 +1299,10 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
         "test-node-id",
             repositoriesServiceSupplier,
             newSettings,
-            clusterSettings,
+            clusterService,
             () -> 0L,
-            threadPool
+            threadPool,
+            List.of(new RemoteIndexPathUploader(threadPool, settings, repositoriesServiceSupplier, clusterSettings))
         );
         assertNotNull(remoteClusterStateService.getRemoteRoutingTableService());
     }
