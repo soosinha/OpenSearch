@@ -11,6 +11,7 @@ package org.opensearch.cluster.routing.remote;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.opensearch.Version;
+import org.opensearch.action.LatchedActionListener;
 import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.routing.IndexRoutingTable;
 import org.opensearch.cluster.routing.RoutingTable;
@@ -24,10 +25,14 @@ import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.Setting;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.util.io.IOUtils;
+import org.opensearch.core.action.ActionListener;
 import org.opensearch.core.common.io.stream.StreamOutput;
 import org.opensearch.core.index.Index;
+import org.opensearch.core.xcontent.NamedXContentRegistry;
+import org.opensearch.core.xcontent.ToXContent;
 import org.opensearch.gateway.remote.ClusterMetadataManifest;
 import org.opensearch.gateway.remote.RemoteClusterStateService;
+import org.opensearch.gateway.remote.RemoteClusterStateUtils;
 import org.opensearch.gateway.remote.routingtable.IndexRoutingTableInputStream;
 import org.opensearch.gateway.remote.routingtable.IndexRoutingTableInputStreamReader;
 import org.opensearch.index.remote.RemoteStoreUtils;
@@ -36,6 +41,8 @@ import org.opensearch.node.remotestore.RemoteStoreNodeAttribute;
 import org.opensearch.repositories.RepositoriesService;
 import org.opensearch.repositories.Repository;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
+import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
+import org.opensearch.threadpool.ThreadPool;
 
 import java.io.*;
 import java.io.Closeable;
@@ -46,6 +53,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -77,14 +85,16 @@ public class RemoteRoutingTableService implements Closeable {
     private final Supplier<RepositoriesService> repositoriesService;
     private final ClusterSettings clusterSettings;
     private BlobStoreRepository blobStoreRepository;
+    private final ThreadPool threadPool;
 
     public RemoteRoutingTableService(Supplier<RepositoriesService> repositoriesService,
                                      Settings settings,
-                                     ClusterSettings clusterSettings) {
+                                     ClusterSettings clusterSettings, ThreadPool threadPool) {
         assert isRemoteRoutingTableEnabled(settings) : "Remote routing table is not enabled";
         this.repositoriesService = repositoriesService;
         this.settings = settings;
         this.clusterSettings = clusterSettings;
+        this.threadPool = threadPool;
     }
 
     public List<ClusterMetadataManifest.UploadedIndexMetadata> writeFullRoutingTable(ClusterState clusterState, String previousClusterUUID) {
@@ -216,6 +226,39 @@ public class RemoteRoutingTableService implements Closeable {
         return new RoutingTable(routingTableVersion, indicesRouting);
     }
 
+    public CheckedRunnable<IOException> getAsyncIndexMetadataReadAction(
+        String clusterName,
+        String clusterUUID,
+        String uploadedFilename,
+        Index index,
+        LatchedActionListener<RemoteIndexRoutingResult> latchedActionListener) {
+        BlobContainer blobContainer = blobStoreRepository.blobStore().blobContainer(getCusterMetadataBasePath(blobStoreRepository, clusterName, clusterUUID));
+        return () -> readAsync(
+            blobContainer,
+            uploadedFilename,
+            threadPool.executor(ThreadPool.Names.GENERIC),
+            ActionListener.wrap(response -> latchedActionListener.onResponse(new RemoteIndexRoutingResult(index.getName(), response.readIndexRoutingTable(index))), latchedActionListener::onFailure)
+        );
+    }
+
+    public void readAsync(BlobContainer blobContainer, String name, ExecutorService executorService, ActionListener<IndexRoutingTableInputStreamReader> listener) throws IOException {
+        executorService.execute(() -> {
+            try {
+                listener.onResponse(read(blobContainer, name));
+            } catch (Exception e) {
+                listener.onFailure(e);
+            }
+        });
+    }
+
+    public IndexRoutingTableInputStreamReader read(BlobContainer blobContainer, String path) {
+        try {
+            new IndexRoutingTableInputStreamReader(blobContainer.readBlob(path));
+        } catch (IOException e) {
+            logger.info("RoutingTable read failed with error: {}", e.toString());
+        }
+        return null;
+    }
     private void deleteStaleRoutingTable(String clusterName, String clusterUUID, int manifestsToRetain) {
     }
 
@@ -237,4 +280,21 @@ public class RemoteRoutingTableService implements Closeable {
         blobStoreRepository = (BlobStoreRepository) repository;
     }
 
+    public static class RemoteIndexRoutingResult {
+        String indexName;
+        IndexRoutingTable indexRoutingTable;
+
+        public RemoteIndexRoutingResult(String indexName, IndexRoutingTable indexRoutingTable) {
+            this.indexName = indexName;
+            this.indexRoutingTable = indexRoutingTable;
+        }
+
+       public String getIndexName() {
+           return indexName;
+       }
+
+       public IndexRoutingTable  getIndexRoutingTable() {
+           return indexRoutingTable;
+       }
+    }
 }

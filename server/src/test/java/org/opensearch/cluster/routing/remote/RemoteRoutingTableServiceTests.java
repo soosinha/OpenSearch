@@ -18,6 +18,7 @@ import org.opensearch.repositories.RepositoriesService;
 import org.opensearch.repositories.RepositoryMissingException;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.test.OpenSearchTestCase;
+import org.opensearch.threadpool.ThreadPool;
 
 import java.util.function.Supplier;
 
@@ -55,7 +56,8 @@ public class RemoteRoutingTableServiceTests extends OpenSearchTestCase {
         remoteRoutingTableService = new RemoteRoutingTableService(
             repositoriesServiceSupplier,
             settings,
-            clusterSettings
+            clusterSettings,
+            new ThreadPool(settings)
         );
     }
 
@@ -73,7 +75,8 @@ public class RemoteRoutingTableServiceTests extends OpenSearchTestCase {
             () -> new RemoteRoutingTableService(
                 repositoriesServiceSupplier,
                 settings,
-                new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS)
+                new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS),
+                new ThreadPool(settings)
             )
         );
     }

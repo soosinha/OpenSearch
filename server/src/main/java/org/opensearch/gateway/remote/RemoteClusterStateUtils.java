@@ -67,7 +67,7 @@ public class RemoteClusterStateUtils {
         }
     }
 
-    static class UploadedMetadataResults {
+    public static class UploadedMetadataResults {
         List<ClusterMetadataManifest.UploadedIndexMetadata> uploadedIndexMetadata;
         Map<String, ClusterMetadataManifest.UploadedMetadataAttribute> uploadedCustomMetadataMap;
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedCoordinationMetadata;
@@ -105,7 +105,7 @@ public class RemoteClusterStateUtils {
         }
     }
 
-    static class RemoteReadResult {
+    public static class RemoteReadResult {
         ToXContent obj;
         String component;
         String componentName;
