@@ -46,6 +46,7 @@ public class ClusterStateDiffManifest implements ToXContentObject {
     private final boolean settingsMetadataUpdated;
     private final boolean templatesMetadataUpdated;
     private final Map<String, Boolean> customMetadataUpdated;
+    private final List<String> customMetadataDeleted;
     private final List<String> indicesUpdated;
     private final List<String> indicesDeleted;
     private final boolean clusterBlocksUpdated;
@@ -70,28 +71,35 @@ public class ClusterStateDiffManifest implements ToXContentObject {
                 state.metadata().customs().get(custom).equals(previousState.metadata().customs().get(custom))
             );
         }
+        customMetadataDeleted = new ArrayList<>();
+        for (String custom : previousState.metadata().customs().keySet()) {
+            if (state.metadata().customs().get(custom) == null) {
+                customMetadataDeleted.add(custom);
+            }
+        }
         indicesRoutingUpdated = getIndicesRoutingUpdated(previousState.routingTable(), state.routingTable());
         indicesRoutingDeleted = getIndicesRoutingDeleted(previousState.routingTable(), state.routingTable());
     }
 
     public ClusterStateDiffManifest(String fromStateUUID,
-                               String toStateUUID,
-                               boolean coordinationMetadataUpdated,
-                               boolean settingsMetadataUpdated,
-                               boolean templatesMetadataUpdated,
-                               Map<String, Boolean> customMetadataUpdated,
-                               List<String> indicesUpdated,
-                               List<String> indicesDeleted,
-                               boolean clusterBlocksUpdated,
-                               boolean discoveryNodesUpdated,
-                               List<String>indicesRoutingUpdated,
-                               List<String>indicesRoutingDeleted) {
+                                    String toStateUUID,
+                                    boolean coordinationMetadataUpdated,
+                                    boolean settingsMetadataUpdated,
+                                    boolean templatesMetadataUpdated,
+                                    Map<String, Boolean> customMetadataUpdated, List<String> customMetadataDeleted,
+                                    List<String> indicesUpdated,
+                                    List<String> indicesDeleted,
+                                    boolean clusterBlocksUpdated,
+                                    boolean discoveryNodesUpdated,
+                                    List<String>indicesRoutingUpdated,
+                                    List<String>indicesRoutingDeleted) {
         this.fromStateUUID = fromStateUUID;
         this.toStateUUID = toStateUUID;
         this.coordinationMetadataUpdated = coordinationMetadataUpdated;
         this.settingsMetadataUpdated = settingsMetadataUpdated;
         this.templatesMetadataUpdated = templatesMetadataUpdated;
         this.customMetadataUpdated = customMetadataUpdated;
+        this.customMetadataDeleted = customMetadataDeleted;
         this.indicesUpdated = indicesUpdated;
         this.indicesDeleted = indicesDeleted;
         this.clusterBlocksUpdated = clusterBlocksUpdated;
@@ -320,6 +328,10 @@ public class ClusterStateDiffManifest implements ToXContentObject {
         return customMetadataUpdated;
     }
 
+    public List<String> getCustomMetadataDeleted() {
+        return customMetadataDeleted;
+    }
+
     public List<String> getIndicesUpdated() {
         return indicesUpdated;
     }
@@ -355,6 +367,7 @@ public class ClusterStateDiffManifest implements ToXContentObject {
         private boolean settingsMetadataUpdated;
         private boolean templatesMetadataUpdated;
         private Map<String, Boolean> customMetadataUpdated;
+        private List<String> customMetadataDeleted;
         private List<String> indicesUpdated;
         private List<String> indicesDeleted;
         private boolean clusterBlocksUpdated;
@@ -390,6 +403,11 @@ public class ClusterStateDiffManifest implements ToXContentObject {
 
         public Builder customMetadataUpdated(Map<String, Boolean> customMetadataUpdated) {
             this.customMetadataUpdated = customMetadataUpdated;
+            return this;
+        }
+
+        public Builder customMetadataDeleted(List<String> customMetadataDeleted) {
+            this.customMetadataDeleted = customMetadataDeleted;
             return this;
         }
 
@@ -431,6 +449,7 @@ public class ClusterStateDiffManifest implements ToXContentObject {
                 settingsMetadataUpdated,
                 templatesMetadataUpdated,
                 customMetadataUpdated,
+                customMetadataDeleted,
                 indicesUpdated,
                 indicesDeleted,
                 clusterBlocksUpdated,

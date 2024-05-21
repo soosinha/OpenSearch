@@ -962,7 +962,7 @@ public class RemoteClusterStateService implements Closeable {
         }
         ClusterState.Builder clusterStateBuilder = ClusterState.builder(previousState);
         AtomicReference<DiscoveryNodes.Builder> discoveryNodesBuilder = new AtomicReference<>(DiscoveryNodes.builder());
-        Metadata.Builder metadataBuilder = Metadata.builder();
+        Metadata.Builder metadataBuilder = Metadata.builder(previousState.metadata());
         metadataBuilder.clusterUUID(manifest.getClusterUUID());
         metadataBuilder.clusterUUIDCommitted(manifest.isClusterUUIDCommitted());
         Map<String, IndexMetadata> indexMetadataMap = new HashMap<>();
@@ -996,8 +996,10 @@ public class RemoteClusterStateService implements Closeable {
             }
         });
         metadataBuilder.indices(indexMetadataMap);
+        if (readDiscoveryNodes) {
+            clusterStateBuilder.nodes(discoveryNodesBuilder.get().localNodeId(localNodeId))
+        }
         return clusterStateBuilder.metadata(metadataBuilder)
-            .nodes(discoveryNodesBuilder.get().localNodeId(localNodeId))
             .version(manifest.getStateVersion())
             .stateUUID(manifest.getStateUUID())
             .build();
@@ -1021,37 +1023,36 @@ public class RemoteClusterStateService implements Closeable {
         );
     }
 
-    public ClusterState getClusterStateUsingDiff(String clusterName, ClusterMetadataManifest manifest, ClusterState previousState, String localNodeId) {
+    public ClusterState getClusterStateUsingDiff(String clusterName, ClusterMetadataManifest manifest, ClusterState previousState, String localNodeId) throws IOException {
         assert manifest.getDiffManifest() != null;
         ClusterStateDiffManifest diff = manifest.getDiffManifest();
-        ClusterState.Builder clusterStateBuilder = ClusterState.builder(previousState);
-        Metadata.Builder metadataBuilder = Metadata.builder(previousState.metadata());
-
-        for (String index:diff.getIndicesUpdated()) {
-            //todo optimize below iteration
-            Optional<UploadedIndexMetadata> uploadedIndexMetadataOptional = manifest.getIndices().stream().filter(idx -> idx.getIndexName().equals(index)).findFirst();
+        List<UploadedIndexMetadata> updatedIndices = diff.getIndicesUpdated().stream().map(idx -> {
+            Optional<UploadedIndexMetadata> uploadedIndexMetadataOptional = manifest.getIndices().stream().filter(idx2 -> idx2.getIndexName().equals(idx)).findFirst();
             assert uploadedIndexMetadataOptional.isPresent() == true;
-            IndexMetadata indexMetadata = remoteIndexMetadataManager.getIndexMetadata(clusterName, manifest.getClusterUUID(), uploadedIndexMetadataOptional.get());
-            metadataBuilder.put(indexMetadata, false);
+            return uploadedIndexMetadataOptional.get();
+        }).collect(Collectors.toList());
+        Map<String, UploadedMetadataAttribute> updatedCustomMetadata = new HashMap<>();
+        for (String customType : diff.getCustomMetadataUpdated().keySet()) {
+            updatedCustomMetadata.put(customType, manifest.getCustomMetadataMap().get(customType));
         }
+        ClusterState updatedClusterState = readClusterStateInParallel(
+            previousState,
+            manifest,
+            clusterName,
+            manifest.getClusterUUID(),
+            localNodeId,
+            updatedIndices,
+            updatedCustomMetadata,
+            diff.isCoordinationMetadataUpdated(),
+            diff.isSettingsMetadataUpdated(),
+            diff.isTemplatesMetadataUpdated(),
+            diff.isDiscoveryNodesUpdated(),
+            diff.isClusterBlocksUpdated()
+        );
+        ClusterState.Builder clusterStateBuilder = ClusterState.builder(updatedClusterState);
+        Metadata.Builder metadataBuilder = Metadata.builder(updatedClusterState.metadata());
         for (String index:diff.getIndicesDeleted()) {
             metadataBuilder.remove(index);
-        }
-        if (diff.isCoordinationMetadataUpdated()) {
-            CoordinationMetadata coordinationMetadata = remoteGlobalMetadataManager.getCoordinationMetadata(clusterName, manifest.getClusterUUID(), manifest.getCoordinationMetadata().getUploadedFilename());
-            metadataBuilder.coordinationMetadata(coordinationMetadata);
-        }
-        if (diff.isSettingsMetadataUpdated()) {
-            Settings settings = remoteGlobalMetadataManager.getSettingsMetadata(clusterName, manifest.getClusterUUID(), manifest.getSettingsMetadata().getUploadedFilename());
-            metadataBuilder.persistentSettings(settings);
-        }
-        if (diff.isTemplatesMetadataUpdated()) {
-            TemplatesMetadata templatesMetadata = remoteGlobalMetadataManager.getTemplatesMetadata(clusterName, manifest.getClusterUUID(), manifest.getTemplatesMetadata().getUploadedFilename());
-            metadataBuilder.templates(templatesMetadata);
-        }
-        if (diff.isDiscoveryNodesUpdated()) {
-            DiscoveryNodes discoveryNodes = (DiscoveryNodes) remoteClusterStateAttributesManager.readMetadata(DISCOVERY_NODES_FORMAT, clusterName, manifest.getClusterUUID(), manifest.getDiscoveryNodesMetadata().getUploadedFilename());
-            clusterStateBuilder.nodes(DiscoveryNodes.builder(discoveryNodes).localNodeId(localNodeId));
         }
         if (diff.getCustomMetadataUpdated() != null) {
             for (String customType : diff.getCustomMetadataUpdated().keySet()) {
@@ -1059,6 +1060,9 @@ public class RemoteClusterStateService implements Closeable {
                     manifest.getCustomMetadataMap().get(customType).getUploadedFilename(), customType);
                 metadataBuilder.putCustom(customType, custom);
             }
+        }
+        for (String customType : diff.getCustomMetadataDeleted()) {
+            metadataBuilder.removeCustom(customType);
         }
 
         // Constructing Routing Table
