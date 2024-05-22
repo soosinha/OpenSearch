@@ -8,6 +8,7 @@
 
 package org.opensearch.gateway.remote;
 
+import java.util.Locale;
 import org.opensearch.cluster.metadata.Metadata;
 import org.opensearch.common.blobstore.BlobContainer;
 import org.opensearch.common.blobstore.BlobPath;
@@ -23,18 +24,15 @@ import java.util.Map;
 
 public class RemoteClusterStateUtils {
     public static final String METADATA_NAME_FORMAT = "%s.dat";
+    public static final String METADATA_NAME_PLAIN_FORMAT = "%s";
     public static final String METADATA_FILE_PREFIX = "metadata";
     public static final String CLUSTER_STATE_PATH_TOKEN = "cluster-state";
     public static final String DELIMITER = "__";
+    public static final String PATH_DELIMITER = "/";
 
     // ToXContent Params with gateway mode.
     // We are using gateway context mode to persist all custom metadata.
-    public static final ToXContent.Params FORMAT_PARAMS;
-    static {
-        Map<String, String> params = new HashMap<>(1);
-        params.put(Metadata.CONTEXT_MODE_PARAM, Metadata.CONTEXT_MODE_GATEWAY);
-        FORMAT_PARAMS = new ToXContent.MapParams(params);
-    }
+    public static final ToXContent.Params FORMAT_PARAMS = new ToXContent.MapParams(Map.of(Metadata.CONTEXT_MODE_PARAM, Metadata.CONTEXT_MODE_GATEWAY));
 
     public static BlobPath getCusterMetadataBasePath(BlobStoreRepository blobStoreRepository, String clusterName, String clusterUUID) {
         return blobStoreRepository.basePath().add(encodeString(clusterName)).add(CLUSTER_STATE_PATH_TOKEN).add(clusterUUID);
@@ -42,6 +40,13 @@ public class RemoteClusterStateUtils {
 
     public static String encodeString(String content) {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(content.getBytes(StandardCharsets.UTF_8));
+    }
+
+    public static String getFormattedFileName(String fileName, int codecVersion) {
+        if (codecVersion < ClusterMetadataManifest.CODEC_V3) {
+            return String.format(Locale.ROOT, METADATA_NAME_FORMAT, fileName);
+        }
+        return fileName;
     }
 
     static BlobContainer clusterUUIDContainer(BlobStoreRepository blobStoreRepository, String clusterName) {

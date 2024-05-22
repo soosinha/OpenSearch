@@ -12,8 +12,6 @@ import java.util.List;
 
 public class BlobPathParameters {
 
-    public static final String FILE_NAME_DELIMITER = "__";
-
     private List<String> pathTokens;
     private String filePrefix;
 

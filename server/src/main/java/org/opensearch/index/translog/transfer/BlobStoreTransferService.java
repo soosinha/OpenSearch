@@ -11,6 +11,7 @@ package org.opensearch.index.translog.transfer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.message.ParameterizedMessage;
+import org.apache.lucene.store.IndexInput;
 import org.opensearch.action.ActionRunnable;
 import org.opensearch.common.annotation.ExperimentalApi;
 import org.opensearch.common.blobstore.AsyncMultiStreamBlobContainer;
@@ -23,7 +24,11 @@ import org.opensearch.common.blobstore.stream.write.WriteContext;
 import org.opensearch.common.blobstore.stream.write.WritePriority;
 import org.opensearch.common.blobstore.transfer.RemoteTransferContainer;
 import org.opensearch.common.blobstore.transfer.stream.OffsetRangeFileInputStream;
+import org.opensearch.common.blobstore.transfer.stream.OffsetRangeIndexInputStream;
+import org.opensearch.common.lucene.store.ByteArrayIndexInput;
 import org.opensearch.core.action.ActionListener;
+import org.opensearch.core.common.bytes.BytesReference;
+import org.opensearch.index.store.exception.ChecksumCombinationException;
 import org.opensearch.index.translog.ChannelFactory;
 import org.opensearch.index.translog.transfer.FileSnapshot.TransferFileSnapshot;
 import org.opensearch.threadpool.ThreadPool;
@@ -38,6 +43,7 @@ import java.util.Objects;
 import java.util.Set;
 
 import static org.opensearch.common.blobstore.BlobContainer.BlobNameSortOrder.LEXICOGRAPHIC;
+import static org.opensearch.common.blobstore.transfer.RemoteTransferContainer.checksumOfChecksum;
 
 /**
  * Service that handles remote transfer of translog and checkpoint files
@@ -102,6 +108,48 @@ public class BlobStoreTransferService implements TransferService {
             }
         });
 
+    }
+
+    @Override
+    public void uploadBlob(InputStream inputStream, Iterable<String> remotePath, String blobName, WritePriority writePriority, ActionListener<Void> listener) throws IOException {
+        assert remotePath instanceof BlobPath;
+        BlobPath blobPath = (BlobPath) remotePath;
+        final BlobContainer blobContainer = blobStore.blobContainer(blobPath);
+        if (blobContainer instanceof AsyncMultiStreamBlobContainer == false) {
+            blobContainer.writeBlob(blobName, inputStream, inputStream.available(), false);
+            listener.onResponse(null);
+            return;
+        }
+        final String resourceDescription = "BlobStoreTransferService.uploadBlob(blob=\"" + blobName + "\")";
+        byte[] bytes = inputStream.readAllBytes();
+        try (IndexInput input = new ByteArrayIndexInput(resourceDescription, bytes)) {
+            long expectedChecksum;
+            try {
+                expectedChecksum = checksumOfChecksum(input.clone(), 8);
+            } catch (Exception e) {
+                throw new ChecksumCombinationException(
+                    "Potentially corrupted file: Checksum combination failed while combining stored checksum "
+                        + "and calculated checksum of stored checksum",
+                    resourceDescription,
+                    e
+                );
+            }
+
+            try (
+                RemoteTransferContainer remoteTransferContainer = new RemoteTransferContainer(
+                    blobName,
+                    blobName,
+                    bytes.length,
+                    true,
+                    writePriority,
+                    (size, position) -> new OffsetRangeIndexInputStream(input, size, position),
+                    expectedChecksum,
+                    ((AsyncMultiStreamBlobContainer) blobContainer).remoteIntegrityCheckSupported()
+                )
+            ) {
+                ((AsyncMultiStreamBlobContainer) blobContainer).asyncBlobUpload(remoteTransferContainer.createWriteContext(), listener);
+            }
+        }
     }
 
     private void uploadBlob(

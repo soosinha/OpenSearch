@@ -232,10 +232,12 @@ public class RemoteRoutingTableService implements Closeable {
         String uploadedFilename,
         Index index,
         LatchedActionListener<RemoteIndexRoutingResult> latchedActionListener) {
-        BlobContainer blobContainer = blobStoreRepository.blobStore().blobContainer(getCusterMetadataBasePath(blobStoreRepository, clusterName, clusterUUID));
+        BlobContainer blobContainer = blobStoreRepository.blobStore().blobContainer(getCusterMetadataBasePath(blobStoreRepository, clusterName, clusterUUID).add(INDEX_ROUTING_PATH_TOKEN).add(index.getUUID()));
+        String[] fileNameTokens = uploadedFilename.split("/");
+        String blobFileName = fileNameTokens[fileNameTokens.length -1];
         return () -> readAsync(
             blobContainer,
-            uploadedFilename,
+            blobFileName,
             threadPool.executor(ThreadPool.Names.GENERIC),
             ActionListener.wrap(response -> latchedActionListener.onResponse(new RemoteIndexRoutingResult(index.getName(), response.readIndexRoutingTable(index))), latchedActionListener::onFailure)
         );
@@ -246,6 +248,7 @@ public class RemoteRoutingTableService implements Closeable {
             try {
                 listener.onResponse(read(blobContainer, name));
             } catch (Exception e) {
+                logger.error("routing table download failed : ", e);
                 listener.onFailure(e);
             }
         });
@@ -253,7 +256,7 @@ public class RemoteRoutingTableService implements Closeable {
 
     public IndexRoutingTableInputStreamReader read(BlobContainer blobContainer, String path) {
         try {
-            new IndexRoutingTableInputStreamReader(blobContainer.readBlob(path));
+            return new IndexRoutingTableInputStreamReader(blobContainer.readBlob(path));
         } catch (IOException e) {
             logger.info("RoutingTable read failed with error: {}", e.toString());
         }

@@ -10,6 +10,7 @@ package org.opensearch.gateway.remote;
 
 import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.Settings;
+import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.test.OpenSearchTestCase;
 import org.junit.After;
@@ -29,7 +30,8 @@ public class RemoteGlobalMetadataManagerTests extends OpenSearchTestCase {
     public void setup() {
         clusterSettings = new ClusterSettings(Settings.EMPTY, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
         blobStoreRepository = mock(BlobStoreRepository.class);
-        remoteGlobalMetadataManager = new RemoteGlobalMetadataManager(blobStoreRepository, clusterSettings, threadPool);
+        BlobStoreTransferService blobStoreTransferService = mock(BlobStoreTransferService.class);
+        remoteGlobalMetadataManager = new RemoteGlobalMetadataManager(blobStoreRepository, clusterSettings, threadPool, blobStoreTransferService, "test-cluster");
     }
 
     @After

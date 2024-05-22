@@ -15,8 +15,9 @@ import org.opensearch.core.common.bytes.BytesReference;
 
 public interface RemoteObject <T> {
     public T get();
+    public String clusterUUID();
     public RemoteObjectStore<T> getBackingStore();
-    public BytesReference serialize() throws IOException;
+    public InputStream serialize() throws IOException;
+    public T deserialize(InputStream inputStream) throws IOException;
 
-    T deserialize(InputStream inputStream) throws IOException;
 }

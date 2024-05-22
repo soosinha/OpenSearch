@@ -10,60 +10,56 @@ package org.opensearch.gateway.remote;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.function.Function;
+import java.util.Arrays;
+import java.util.concurrent.ExecutorService;
 import org.opensearch.common.CheckedRunnable;
-import org.opensearch.common.blobstore.BlobContainer;
 import org.opensearch.common.blobstore.BlobPath;
+import org.opensearch.common.blobstore.stream.write.WritePriority;
 import org.opensearch.core.action.ActionListener;
-import org.opensearch.core.common.bytes.BytesReference;
 import org.opensearch.core.compress.Compressor;
+import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 
 public class RemoteObjectBlobStore<T> implements RemoteObjectStore<T> {
+
+    private static final String PATH_DELIMITER = "/";
+
+    private final ExecutorService executorService;
+    private final BlobStoreTransferService transferService;
     private final BlobStoreRepository blobStoreRepository;
     private final String clusterName;
-    private final String clusterUUID;
 
-    public RemoteObjectBlobStore(BlobStoreRepository remoteStoreFactory, String clusterName, String clusterUUID) {
+    public RemoteObjectBlobStore(ExecutorService executorService, BlobStoreTransferService blobStoreTransferService, BlobStoreRepository remoteStoreFactory, String clusterName) {
+        this.executorService = executorService;
+        this.transferService = blobStoreTransferService;
         this.blobStoreRepository = remoteStoreFactory;
         this.clusterName = clusterName;
-        this.clusterUUID = clusterUUID;
-    }
-
-    @Override
-    public void write(RemoteObject<T> remoteObject) throws IOException {
-        AbstractRemoteBlobStoreObject<T> abstractRemoteBlobStoreObject = (AbstractRemoteBlobStoreObject<T>) remoteObject;
-        BytesReference bytesReference = abstractRemoteBlobStoreObject.serialize();
-        abstractRemoteBlobStoreObject.getBlobContainer().writeBlob(abstractRemoteBlobStoreObject.generateBlobFileName(), bytesReference.streamInput(), bytesReference.length(), false);
     }
 
     @Override
     public CheckedRunnable<IOException> writeAsync(RemoteObject<T> remoteObject, ActionListener<Void> listener) {
         return () -> {
             AbstractRemoteBlobStoreObject<T> abstractRemoteBlobStoreObject = (AbstractRemoteBlobStoreObject<T>) remoteObject;
-            BytesReference bytesReference = abstractRemoteBlobStoreObject.serialize();
-            abstractRemoteBlobStoreObject.getBlobContainer().writeBlob(abstractRemoteBlobStoreObject.generateBlobFileName(), bytesReference.streamInput(), bytesReference.length(), false);
+            InputStream inputStream = abstractRemoteBlobStoreObject.serialize();
+            transferService.uploadBlob(inputStream, getBlobPathForUpload(remoteObject), abstractRemoteBlobStoreObject.getBlobFileName(), WritePriority.URGENT,
+                listener);
         };
     }
 
     @Override
     public T read(RemoteObject<T> remoteObject) throws IOException {
         AbstractRemoteBlobStoreObject<T> abstractRemoteBlobStoreObject = (AbstractRemoteBlobStoreObject<T>) remoteObject;
-        return abstractRemoteBlobStoreObject.deserialize(getBlobContainer(abstractRemoteBlobStoreObject.getBlobPathParameters().getPathTokens()).readBlob(abstractRemoteBlobStoreObject.getBlobName()));
+        return remoteObject.deserialize(
+            transferService.downloadBlob(getBlobPathForDownload(remoteObject), abstractRemoteBlobStoreObject.getBlobFileName()));
     }
 
     @Override
-    public CompletableFuture<T> readAsync(RemoteObject<T> remoteObject){
-        return CompletableFuture.supplyAsync(() -> {
-            AbstractRemoteBlobStoreObject<T> abstractRemoteBlobStoreObject = (AbstractRemoteBlobStoreObject<T>) remoteObject;
+    public void readAsync(RemoteObject<T> remoteObject, ActionListener<T> listener) {
+        executorService.execute(() -> {
             try {
-                return abstractRemoteBlobStoreObject.deserialize(getBlobContainer(abstractRemoteBlobStoreObject.getBlobPathParameters().getPathTokens()).readBlob(abstractRemoteBlobStoreObject.getBlobName()));
-            } catch (IOException e) {
-                throw new RuntimeException(e);
+                listener.onResponse(read(remoteObject));
+            } catch (Exception e) {
+                listener.onFailure(e);
             }
         });
     }
@@ -73,16 +69,36 @@ public class RemoteObjectBlobStore<T> implements RemoteObjectStore<T> {
         return blobStoreRepository.getCompressor();
     }
 
-    private BlobContainer getBlobContainer(List<String> pathTokens) {
-        BlobPath blobPath = blobStoreRepository.basePath().add(encodeString(clusterName)).add("cluster-state").add(clusterUUID);
+    public BlobPath getBlobPathForUpload(RemoteObject<T> remoteObject) {
+        BlobPath blobPath = blobStoreRepository.basePath().add(RemoteClusterStateUtils.encodeString(clusterName)).add("cluster-state").add(remoteObject.clusterUUID());
+        AbstractRemoteBlobStoreObject<T> abstractRemoteBlobStoreObject = (AbstractRemoteBlobStoreObject<T>) remoteObject;
+        for (String token : abstractRemoteBlobStoreObject.getBlobPathParameters().getPathTokens()) {
+            blobPath = blobPath.add(token);
+        }
+        return blobPath;
+    }
+
+    public BlobPath getBlobPathForDownload(RemoteObject<T> remoteObject) {
+        AbstractRemoteBlobStoreObject<T> abstractRemoteBlobStoreObject = (AbstractRemoteBlobStoreObject<T>) remoteObject;
+        String[] pathTokens = extractBlobPathTokens(abstractRemoteBlobStoreObject.getFullBlobName());
+        BlobPath blobPath = blobStoreRepository.basePath();
         for (String token : pathTokens) {
             blobPath = blobPath.add(token);
         }
-        return blobStoreRepository.blobStore().blobContainer(blobPath);
+        return blobPath;
     }
 
-    public static String encodeString(String content) {
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(content.getBytes(StandardCharsets.UTF_8));
+    private static String extractBlobFileName(String blobName) {
+        // todo add handling for *.dat extension
+        assert blobName != null;
+        String[] blobNameTokens = blobName.split(PATH_DELIMITER);
+        return blobNameTokens[blobNameTokens.length - 1];
     }
+
+    private static String[] extractBlobPathTokens(String blobName) {
+        String[] blobNameTokens = blobName.split(PATH_DELIMITER);
+        return Arrays.copyOfRange(blobNameTokens, 0, blobNameTokens.length - 1);
+    }
+
 
 }

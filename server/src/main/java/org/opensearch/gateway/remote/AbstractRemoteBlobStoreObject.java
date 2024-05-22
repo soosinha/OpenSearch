@@ -8,17 +8,24 @@
 
 package org.opensearch.gateway.remote;
 
-import org.opensearch.common.blobstore.BlobContainer;
-import org.opensearch.core.common.bytes.BytesReference;
-import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.PATH_DELIMITER;
+
+import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadata;
 
 public abstract class AbstractRemoteBlobStoreObject<T> implements RemoteObject <T> {
 
-    public abstract BlobContainer getBlobContainer();
     public abstract BlobPathParameters getBlobPathParameters();
-    public abstract String getBlobNameFormat();
-    public abstract String getBlobName();
+    public abstract String getFullBlobName();
+
+    public String getBlobFileName() {
+        if (getFullBlobName() == null) {
+            generateBlobFileName();
+        }
+        String[] pathTokens = getFullBlobName().split(PATH_DELIMITER);
+        return getFullBlobName().split(PATH_DELIMITER)[pathTokens.length - 1];
+    }
     public abstract String generateBlobFileName();
     public abstract RemoteObjectStore<T> getBackingStore();
-    public abstract ChecksumBlobStoreFormat getChecksumBlobStoreFormat();
+    public abstract UploadedMetadata getUploadedMetadata();
+
 }

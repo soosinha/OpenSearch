@@ -9,50 +9,47 @@
 package org.opensearch.gateway.remote;
 
 
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.METADATA_NAME_PLAIN_FORMAT;
+
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import org.opensearch.cluster.metadata.IndexMetadata;
-import org.opensearch.cluster.metadata.Metadata;
-import org.opensearch.common.blobstore.BlobContainer;
-import org.opensearch.core.common.bytes.BytesReference;
-import org.opensearch.core.xcontent.ToXContent;
+import org.opensearch.common.io.Streams;
+import org.opensearch.core.xcontent.NamedXContentRegistry;
+import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedIndexMetadata;
+import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadata;
 import org.opensearch.index.remote.RemoteStoreUtils;
 import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
 
 public class RemoteIndexMetadata extends AbstractRemoteBlobStoreObject<IndexMetadata> {
-
-    public static final String DELIMITER = "__";
     public static final int INDEX_METADATA_CURRENT_CODEC_VERSION = 1;
 
     public static final ChecksumBlobStoreFormat<IndexMetadata> INDEX_METADATA_FORMAT = new ChecksumBlobStoreFormat<>(
         "index-metadata",
-        RemoteClusterStateUtils.METADATA_NAME_FORMAT,
+        METADATA_NAME_PLAIN_FORMAT,
         IndexMetadata::fromXContent
     );
-
-    public static final ToXContent.Params FORMAT_PARAMS;
-
-    static {
-        Map<String, String> params = new HashMap<>(1);
-        params.put(Metadata.CONTEXT_MODE_PARAM, Metadata.CONTEXT_MODE_GATEWAY);
-        FORMAT_PARAMS = new ToXContent.MapParams(params);
-    }
 
     private IndexMetadata indexMetadata;
     private final RemoteObjectStore<IndexMetadata> backingStore;
     private String blobName;
+    private final NamedXContentRegistry xContentRegistry;
+    private final String clusterUUID;
 
-    public RemoteIndexMetadata(IndexMetadata indexMetadata, RemoteObjectStore<IndexMetadata> backingStore) {
+    public RemoteIndexMetadata(IndexMetadata indexMetadata, String clusterUUID, RemoteObjectBlobStore<IndexMetadata> backingStore,
+        NamedXContentRegistry xContentRegistry) {
         this.indexMetadata = indexMetadata;
         this.backingStore = backingStore;
+        this.xContentRegistry = xContentRegistry;
+        this.clusterUUID = clusterUUID;
     }
 
-    public RemoteIndexMetadata(String blobName, RemoteObjectStore<IndexMetadata> backingStore) {
+    public RemoteIndexMetadata(String blobName, String clusterUUID, RemoteObjectStore<IndexMetadata> backingStore, NamedXContentRegistry xContentRegistry) {
         this.blobName = blobName;
         this.backingStore = backingStore;
+        this.xContentRegistry = xContentRegistry;
+        this.clusterUUID = clusterUUID;
     }
 
     @Override
@@ -61,8 +58,13 @@ public class RemoteIndexMetadata extends AbstractRemoteBlobStoreObject<IndexMeta
     }
 
     @Override
-    public BlobContainer getBlobContainer() {
-        return null;
+    public String clusterUUID() {
+        return clusterUUID;
+    }
+
+    @Override
+    public String getFullBlobName() {
+        return blobName;
     }
 
     @Override
@@ -71,30 +73,20 @@ public class RemoteIndexMetadata extends AbstractRemoteBlobStoreObject<IndexMeta
     }
 
     @Override
-    public ChecksumBlobStoreFormat<IndexMetadata> getChecksumBlobStoreFormat() {
-        return INDEX_METADATA_FORMAT;
-    }
-
-    @Override
-    public String getBlobNameFormat() {
-        return null;
-    }
-
-    @Override
-    public String getBlobName() {
-        return blobName;
-    }
-
-    @Override
     public String generateBlobFileName() {
-        return String.join(
-            DELIMITER,
+        String blobFileName = String.join(
+            RemoteClusterStateUtils.DELIMITER,
             getBlobPathParameters().getFilePrefix(),
             RemoteStoreUtils.invertLong(indexMetadata.getVersion()),
             RemoteStoreUtils.invertLong(System.currentTimeMillis()),
-            String.valueOf(INDEX_METADATA_CURRENT_CODEC_VERSION) // Keep the codec version at last place only, during read we reads last
+            String.valueOf(INDEX_METADATA_CURRENT_CODEC_VERSION) // Keep the codec version at last place only, during reads we read last
             // place to determine codec version.
         );
+        assert backingStore instanceof RemoteObjectBlobStore;
+        RemoteObjectBlobStore<IndexMetadata> blobStore = (RemoteObjectBlobStore<IndexMetadata>) backingStore;
+        // setting the full blob path with name for future access
+        this.blobName = blobStore.getBlobPathForUpload(this).buildAsString() + blobFileName;
+        return blobFileName;
     }
 
     @Override
@@ -103,12 +95,26 @@ public class RemoteIndexMetadata extends AbstractRemoteBlobStoreObject<IndexMeta
     }
 
     @Override
-    public BytesReference serialize() throws IOException {
-        return INDEX_METADATA_FORMAT.serialize(indexMetadata, generateBlobFileName(), getBackingStore().getCompressor(), FORMAT_PARAMS);
+    public UploadedMetadata getUploadedMetadata() {
+        assert blobName != null;
+        return new UploadedIndexMetadata(indexMetadata.getIndexName(), indexMetadata.getIndexUUID(), blobName);
+    }
+
+    @Override
+    public InputStream serialize() throws IOException {
+        return INDEX_METADATA_FORMAT.serialize(indexMetadata, generateBlobFileName(), getBackingStore().getCompressor(), RemoteClusterStateUtils.FORMAT_PARAMS).streamInput();
     }
 
     @Override
     public IndexMetadata deserialize(InputStream inputStream) throws IOException {
-        return null;
+        // Blob name parameter is redundant
+        return INDEX_METADATA_FORMAT.deserialize(blobName, xContentRegistry, Streams.readFully(inputStream));
     }
+
+    @Override
+    public String toString() {
+        return blobName + clusterUUID;
+    }
+
+
 }

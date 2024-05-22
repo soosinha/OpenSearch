@@ -8,35 +8,26 @@
 
 package org.opensearch.gateway.remote;
 
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.METADATA_NAME_FORMAT;
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.RemoteStateTransferException;
+
+import java.io.IOException;
+import java.util.Locale;
 import org.opensearch.action.LatchedActionListener;
-import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.common.CheckedRunnable;
-import org.opensearch.common.blobstore.BlobContainer;
 import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.Setting;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.core.action.ActionListener;
-import org.opensearch.index.remote.RemoteStoreUtils;
+import org.opensearch.core.xcontent.NamedXContentRegistry;
+import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
 import org.opensearch.threadpool.ThreadPool;
 
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-
-import static org.opensearch.gateway.remote.RemoteClusterStateService.INDEX_METADATA_CURRENT_CODEC_VERSION;
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.FORMAT_PARAMS;
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.METADATA_FILE_PREFIX;
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.METADATA_NAME_FORMAT;
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.RemoteStateTransferException;
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.getCusterMetadataBasePath;
-
 public class RemoteIndexMetadataManager {
+
     public static final TimeValue INDEX_METADATA_UPLOAD_TIMEOUT_DEFAULT = TimeValue.timeValueMillis(20000);
 
     public static final Setting<TimeValue> INDEX_METADATA_UPLOAD_TIMEOUT_SETTING = Setting.timeSetting(
@@ -56,126 +47,81 @@ public class RemoteIndexMetadataManager {
     private final BlobStoreRepository blobStoreRepository;
     private final ThreadPool threadPool;
 
+    private final NamedXContentRegistry namedXContentRegistry;
+    private final RemoteObjectBlobStore<IndexMetadata> remoteIndexMetadataBlobStore;
+
     private volatile TimeValue indexMetadataUploadTimeout;
 
-    public RemoteIndexMetadataManager(BlobStoreRepository blobStoreRepository, ClusterSettings clusterSettings, ThreadPool threadPool) {
+    public RemoteIndexMetadataManager(BlobStoreRepository blobStoreRepository, ClusterSettings clusterSettings, ThreadPool threadPool, String clusterName,
+        NamedXContentRegistry namedXContentRegistry, BlobStoreTransferService blobStoreTransferService) {
         this.blobStoreRepository = blobStoreRepository;
         this.indexMetadataUploadTimeout = clusterSettings.get(INDEX_METADATA_UPLOAD_TIMEOUT_SETTING);
         this.threadPool = threadPool;
         clusterSettings.addSettingsUpdateConsumer(INDEX_METADATA_UPLOAD_TIMEOUT_SETTING, this::setIndexMetadataUploadTimeout);
+        this.remoteIndexMetadataBlobStore = new RemoteObjectBlobStore<>(threadPool.executor(ThreadPool.Names.GENERIC), blobStoreTransferService, blobStoreRepository, clusterName);
+        this.namedXContentRegistry = namedXContentRegistry;
     }
 
     /**
      * Allows async Upload of IndexMetadata to remote
      *
-     * @param clusterState current ClusterState
      * @param indexMetadata {@link IndexMetadata} to upload
      * @param latchedActionListener listener to respond back on after upload finishes
      */
-    CheckedRunnable<IOException> getIndexMetadataAsyncAction(
-        ClusterState clusterState,
-        IndexMetadata indexMetadata,
-        LatchedActionListener<ClusterMetadataManifest.UploadedMetadata> latchedActionListener
-    ) {
-        final BlobContainer indexMetadataContainer = indexMetadataContainer(
-            clusterState.getClusterName().value(),
-            clusterState.metadata().clusterUUID(),
-            indexMetadata.getIndexUUID()
-        );
-        final String indexMetadataFilename = indexMetadataFileName(indexMetadata);
+    CheckedRunnable<IOException> getIndexMetadataAsyncAction(IndexMetadata indexMetadata, String clusterUUID,
+        LatchedActionListener<ClusterMetadataManifest.UploadedMetadata> latchedActionListener) {
+        RemoteIndexMetadata remoteIndexMetadata = new RemoteIndexMetadata(indexMetadata, clusterUUID, remoteIndexMetadataBlobStore, namedXContentRegistry);
         ActionListener<Void> completionListener = ActionListener.wrap(
             resp -> latchedActionListener.onResponse(
-                new ClusterMetadataManifest.UploadedIndexMetadata(
-                    indexMetadata.getIndex().getName(),
-                    indexMetadata.getIndexUUID(),
-                    indexMetadataContainer.path().buildAsString() + indexMetadataFilename
-                )
+                remoteIndexMetadata.getUploadedMetadata()
             ),
             ex -> latchedActionListener.onFailure(new RemoteStateTransferException(indexMetadata.getIndex().toString(), ex))
         );
-
-        return () -> INDEX_METADATA_FORMAT.writeAsyncWithUrgentPriority(
-            indexMetadata,
-            indexMetadataContainer,
-            indexMetadataFilename,
-            blobStoreRepository.getCompressor(),
-            completionListener,
-            FORMAT_PARAMS
-        );
+        return remoteIndexMetadataBlobStore.writeAsync(remoteIndexMetadata, completionListener);
     }
 
     CheckedRunnable<IOException> getAsyncIndexMetadataReadAction(
-        String clusterName,
         String clusterUUID,
         String uploadedFilename,
         LatchedActionListener<RemoteClusterStateUtils.RemoteReadResult> latchedActionListener
     ) {
-        String[] splitPath = uploadedFilename.split("/");
-        return () -> INDEX_METADATA_FORMAT.readAsync(
-            indexMetadataContainer(clusterName, clusterUUID, splitPath[0]),
-            splitPath[splitPath.length - 1],
-            blobStoreRepository.getNamedXContentRegistry(),
-            threadPool.executor(ThreadPool.Names.GENERIC),
-            ActionListener.wrap(response -> latchedActionListener.onResponse(new RemoteClusterStateUtils.RemoteReadResult(response, INDEX_PATH_TOKEN, splitPath[0])), latchedActionListener::onFailure)
-        );
+        RemoteIndexMetadata remoteIndexMetadata = new RemoteIndexMetadata(uploadedFilename, clusterUUID, remoteIndexMetadataBlobStore, blobStoreRepository.getNamedXContentRegistry());
+        ActionListener<IndexMetadata> actionListener = ActionListener.wrap(
+            //todo change dummy
+            response -> latchedActionListener.onResponse(new RemoteClusterStateUtils.RemoteReadResult(response, INDEX_PATH_TOKEN, "dummy")),
+            latchedActionListener::onFailure);
+        return () -> remoteIndexMetadataBlobStore.readAsync(remoteIndexMetadata, actionListener);
+//        String[] splitPath = uploadedFilename.split("/");
+//        return () -> INDEX_METADATA_FORMAT.readAsync(
+//            indexMetadataContainer(clusterName, clusterUUID, splitPath[0]),
+//            splitPath[splitPath.length - 1],
+//            blobStoreRepository.getNamedXContentRegistry(),
+//            threadPool.executor(ThreadPool.Names.GENERIC),
+//            ActionListener.wrap(
+//                response -> latchedActionListener.onResponse(new RemoteClusterStateUtils.RemoteReadResult(response, INDEX_PATH_TOKEN, "dummy")),
+//                latchedActionListener::onFailure)
+//        );
     }
 
     /**
      * Fetch index metadata from remote cluster state
      *
-     * @param clusterUUID uuid of cluster state to refer to in remote
-     * @param clusterName name of the cluster
      * @param uploadedIndexMetadata {@link ClusterMetadataManifest.UploadedIndexMetadata} contains details about remote location of index metadata
      * @return {@link IndexMetadata}
      */
     IndexMetadata getIndexMetadata(
-        String clusterName,
-        String clusterUUID,
-        ClusterMetadataManifest.UploadedIndexMetadata uploadedIndexMetadata
+        ClusterMetadataManifest.UploadedIndexMetadata uploadedIndexMetadata, String clusterUUID, int manifestCodecVersion
     ) {
-        BlobContainer blobContainer = indexMetadataContainer(clusterName, clusterUUID, uploadedIndexMetadata.getIndexUUID());
+        RemoteIndexMetadata remoteIndexMetadata = new RemoteIndexMetadata(RemoteClusterStateUtils.getFormattedFileName(
+            uploadedIndexMetadata.getUploadedFilename(), manifestCodecVersion), clusterUUID, remoteIndexMetadataBlobStore, namedXContentRegistry);
         try {
-            String[] splitPath = uploadedIndexMetadata.getUploadedFilename().split("/");
-            return INDEX_METADATA_FORMAT.read(
-                blobContainer,
-                splitPath[splitPath.length - 1],
-                blobStoreRepository.getNamedXContentRegistry()
-            );
+            return remoteIndexMetadataBlobStore.read(remoteIndexMetadata);
         } catch (IOException e) {
             throw new IllegalStateException(
                 String.format(Locale.ROOT, "Error while downloading IndexMetadata - %s", uploadedIndexMetadata.getUploadedFilename()),
                 e
             );
         }
-    }
-
-    /**
-     * Fetch latest index metadata from remote cluster state
-     *
-     * @param clusterUUID uuid of cluster state to refer to in remote
-     * @param clusterName name of the cluster
-     * @param clusterMetadataManifest manifest file of cluster
-     * @return {@code Map<String, IndexMetadata>} latest IndexUUID to IndexMetadata map
-     */
-    Map<String, IndexMetadata> getIndexMetadataMap(
-        String clusterName,
-        String clusterUUID,
-        ClusterMetadataManifest clusterMetadataManifest
-    ) {
-        assert Objects.equals(clusterUUID, clusterMetadataManifest.getClusterUUID())
-            : "Corrupt ClusterMetadataManifest found. Cluster UUID mismatch.";
-        Map<String, IndexMetadata> remoteIndexMetadata = new HashMap<>();
-        for (ClusterMetadataManifest.UploadedIndexMetadata uploadedIndexMetadata : clusterMetadataManifest.getIndices()) {
-            IndexMetadata indexMetadata = getIndexMetadata(clusterName, clusterUUID, uploadedIndexMetadata);
-            remoteIndexMetadata.put(uploadedIndexMetadata.getIndexUUID(), indexMetadata);
-        }
-        return remoteIndexMetadata;
-    }
-
-    private BlobContainer indexMetadataContainer(String clusterName, String clusterUUID, String indexUUID) {
-        // 123456789012_test-cluster/cluster-state/dsgYj10Nkso7/index/ftqsCnn9TgOX
-        return blobStoreRepository.blobStore()
-            .blobContainer(getCusterMetadataBasePath(blobStoreRepository, clusterName, clusterUUID).add(INDEX_PATH_TOKEN).add(indexUUID));
     }
 
     public TimeValue getIndexMetadataUploadTimeout() {
@@ -186,16 +132,4 @@ public class RemoteIndexMetadataManager {
         this.indexMetadataUploadTimeout = newIndexMetadataUploadTimeout;
     }
 
-    static String indexMetadataFileName(IndexMetadata indexMetadata) {
-        // 123456789012_test-cluster/cluster-state/dsgYj10Nkso7/index/<index_UUID>/metadata__<inverted_index_metadata_version>__<inverted__timestamp>__<codec
-        // version>
-        return String.join(
-            DELIMITER,
-            METADATA_FILE_PREFIX,
-            RemoteStoreUtils.invertLong(indexMetadata.getVersion()),
-            RemoteStoreUtils.invertLong(System.currentTimeMillis()),
-            String.valueOf(INDEX_METADATA_CURRENT_CODEC_VERSION) // Keep the codec version at last place only, during read we reads last
-            // place to determine codec version.
-        );
-    }
 }

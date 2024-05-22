@@ -8,45 +8,28 @@
 
 package org.opensearch.gateway.remote;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.message.ParameterizedMessage;
-import org.opensearch.action.LatchedActionListener;
-import org.opensearch.cluster.ClusterState;
-import org.opensearch.cluster.block.ClusterBlocks;
-import org.opensearch.cluster.coordination.CoordinationMetadata;
-import org.opensearch.cluster.metadata.IndexMetadata;
-import org.opensearch.cluster.metadata.Metadata;
-import org.opensearch.cluster.metadata.TemplatesMetadata;
-import org.opensearch.cluster.routing.IndexRoutingTable;
-import org.opensearch.cluster.service.ClusterService;
-import org.opensearch.common.CheckedRunnable;
-import org.opensearch.cluster.node.DiscoveryNodes;
-import org.opensearch.cluster.routing.RoutingTable;
-import org.opensearch.cluster.routing.remote.RemoteRoutingTableService;
-import org.opensearch.cluster.node.DiscoveryNode;
-import org.opensearch.common.Nullable;
-import org.opensearch.common.blobstore.BlobContainer;
-import org.opensearch.common.blobstore.BlobStore;
-import org.opensearch.common.settings.ClusterSettings;
-import org.opensearch.common.settings.Setting;
-import org.opensearch.common.settings.Setting.Property;
-import org.opensearch.common.settings.Settings;
-import org.opensearch.common.unit.TimeValue;
-import org.opensearch.common.util.io.IOUtils;
-import org.opensearch.core.action.ActionListener;
-import org.opensearch.core.index.Index;
-import org.opensearch.core.xcontent.ToXContent;
-import org.opensearch.core.xcontent.XContentParser;
-import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedIndexMetadata;
-import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadataAttribute;
-import org.opensearch.node.Node;
-import org.opensearch.node.remotestore.RemoteStoreNodeAttribute;
-import org.opensearch.repositories.RepositoriesService;
-import org.opensearch.repositories.Repository;
-import org.opensearch.repositories.blobstore.BlobStoreRepository;
-import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
-import org.opensearch.threadpool.ThreadPool;
+import static org.opensearch.gateway.PersistedClusterStateService.SLOW_WRITE_LOGGING_THRESHOLD;
+import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.CLUSTER_BLOCKS;
+import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.CLUSTER_BLOCKS_FORMAT;
+import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.CLUSTER_STATE_ATTRIBUTE;
+import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.DISCOVERY_NODES;
+import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.DISCOVERY_NODES_FORMAT;
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.METADATA_NAME_FORMAT;
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.RemoteReadResult;
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.UploadedMetadataResults;
+import static org.opensearch.gateway.remote.RemoteClusterStateUtils.clusterUUIDContainer;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.COORDINATION_METADATA;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.COORDINATION_METADATA_FORMAT;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.CUSTOM_DELIMITER;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.CUSTOM_METADATA;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.SETTINGS_METADATA_FORMAT;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.SETTING_METADATA;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.TEMPLATES_METADATA;
+import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.TEMPLATES_METADATA_FORMAT;
+import static org.opensearch.gateway.remote.RemoteIndexMetadataManager.INDEX_PATH_TOKEN;
+import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.isRemoteRoutingTableEnabled;
+import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.isRemoteStoreClusterStateEnabled;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -66,30 +49,47 @@ import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
-
-import static org.opensearch.gateway.PersistedClusterStateService.SLOW_WRITE_LOGGING_THRESHOLD;
-import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.CLUSTER_STATE_ATTRIBUTE;
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.METADATA_NAME_FORMAT;
-import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.isRemoteRoutingTableEnabled;
-import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.CLUSTER_BLOCKS;
-import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.CLUSTER_BLOCKS_FORMAT;
-import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.DISCOVERY_NODES;
-import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.DISCOVERY_NODES_FORMAT;
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.UploadedMetadataResults;
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.clusterUUIDContainer;
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.RemoteReadResult;
-import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.COORDINATION_METADATA;
-import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.COORDINATION_METADATA_FORMAT;
-import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.CUSTOM_DELIMITER;
-import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.CUSTOM_METADATA;
-import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.CUSTOM_METADATA_FORMAT;
-import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.SETTINGS_METADATA_FORMAT;
-import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.SETTING_METADATA;
-import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.TEMPLATES_METADATA;
-import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.TEMPLATES_METADATA_FORMAT;
-import static org.opensearch.gateway.remote.RemoteIndexMetadataManager.INDEX_PATH_TOKEN;
-import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.isRemoteStoreClusterStateEnabled;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.message.ParameterizedMessage;
+import org.opensearch.action.LatchedActionListener;
+import org.opensearch.cluster.ClusterName;
+import org.opensearch.cluster.ClusterState;
+import org.opensearch.cluster.block.ClusterBlocks;
+import org.opensearch.cluster.coordination.CoordinationMetadata;
+import org.opensearch.cluster.metadata.IndexMetadata;
+import org.opensearch.cluster.metadata.Metadata;
+import org.opensearch.cluster.metadata.TemplatesMetadata;
+import org.opensearch.cluster.node.DiscoveryNode;
+import org.opensearch.cluster.node.DiscoveryNodes;
+import org.opensearch.cluster.routing.IndexRoutingTable;
+import org.opensearch.cluster.routing.RoutingTable;
+import org.opensearch.cluster.routing.remote.RemoteRoutingTableService;
+import org.opensearch.cluster.service.ClusterService;
+import org.opensearch.common.CheckedRunnable;
+import org.opensearch.common.Nullable;
+import org.opensearch.common.blobstore.BlobContainer;
+import org.opensearch.common.blobstore.BlobStore;
+import org.opensearch.common.settings.ClusterSettings;
+import org.opensearch.common.settings.Setting;
+import org.opensearch.common.settings.Setting.Property;
+import org.opensearch.common.settings.Settings;
+import org.opensearch.common.unit.TimeValue;
+import org.opensearch.common.util.io.IOUtils;
+import org.opensearch.core.action.ActionListener;
+import org.opensearch.core.index.Index;
+import org.opensearch.core.xcontent.ToXContent;
+import org.opensearch.core.xcontent.XContentParser;
+import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedIndexMetadata;
+import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadataAttribute;
+import org.opensearch.index.translog.transfer.BlobStoreTransferService;
+import org.opensearch.node.Node;
+import org.opensearch.node.remotestore.RemoteStoreNodeAttribute;
+import org.opensearch.repositories.RepositoriesService;
+import org.opensearch.repositories.Repository;
+import org.opensearch.repositories.blobstore.BlobStoreRepository;
+import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
+import org.opensearch.threadpool.ThreadPool;
 
 /**
  * A Service which provides APIs to upload and download cluster metadata from remote store.
@@ -139,6 +139,7 @@ public class RemoteClusterStateService implements Closeable {
     private RemoteClusterStateAttributesManager remoteClusterStateAttributesManager;
     private RemoteManifestManager remoteManifestManager;
     private ClusterSettings clusterSettings;
+    private BlobStoreTransferService blobStoreTransferService;
     private final String CLUSTER_STATE_UPLOAD_TIME_LOG_STRING = "writing cluster state for version [{}] took [{}ms]";
     private final String METADATA_UPDATE_LOG_STRING = "wrote metadata for [{}] indices and skipped [{}] unchanged "
         + "indices, coordination metadata updated : [{}], settings metadata updated : [{}], templates metadata "
@@ -486,11 +487,11 @@ public class RemoteClusterStateService implements Closeable {
             uploadTasks.put(
                 SETTING_METADATA,
                 remoteGlobalMetadataManager.getAsyncMetadataWriteAction(
-                    clusterState,
-                    SETTING_METADATA,
-                    SETTINGS_METADATA_FORMAT,
                     clusterState.metadata().persistentSettings(),
-                    listener
+                    clusterState.metadata().version(),
+                    clusterState.metadata().clusterUUID(),
+                    listener,
+                    null
                 )
             );
         }
@@ -498,11 +499,11 @@ public class RemoteClusterStateService implements Closeable {
             uploadTasks.put(
                 COORDINATION_METADATA,
                 remoteGlobalMetadataManager.getAsyncMetadataWriteAction(
-                    clusterState,
-                    COORDINATION_METADATA,
-                    COORDINATION_METADATA_FORMAT,
                     clusterState.metadata().coordinationMetadata(),
-                    listener
+                    clusterState.metadata().version(),
+                    clusterState.metadata().clusterUUID(),
+                    listener,
+                    null
                 )
             );
         }
@@ -510,11 +511,11 @@ public class RemoteClusterStateService implements Closeable {
             uploadTasks.put(
                 TEMPLATES_METADATA,
                 remoteGlobalMetadataManager.getAsyncMetadataWriteAction(
-                    clusterState,
-                    TEMPLATES_METADATA,
-                    TEMPLATES_METADATA_FORMAT,
                     clusterState.metadata().templatesMetadata(),
-                    listener
+                    clusterState.metadata().version(),
+                    clusterState.metadata().clusterUUID(),
+                    listener,
+                    null
                 )
             );
         }
@@ -547,18 +548,18 @@ public class RemoteClusterStateService implements Closeable {
             uploadTasks.put(
                 customComponent,
                 remoteGlobalMetadataManager.getAsyncMetadataWriteAction(
-                    clusterState,
-                    customComponent,
-                    CUSTOM_METADATA_FORMAT,
                     value,
-                    listener
+                    clusterState.metadata().version(),
+                    clusterState.metadata().clusterUUID(),
+                    listener,
+                    key
                 )
             );
         });
         indexToUpload.forEach(indexMetadata -> {
             uploadTasks.put(
                 indexMetadata.getIndexName(),
-                remoteIndexMetadataManager.getIndexMetadataAsyncAction(clusterState, indexMetadata, listener)
+                remoteIndexMetadataManager.getIndexMetadataAsyncAction(indexMetadata, clusterState.metadata().clusterUUID(), listener)
             );
         });
 
@@ -761,8 +762,9 @@ public class RemoteClusterStateService implements Closeable {
         if(this.remoteRoutingTableService != null) {
             this.remoteRoutingTableService.start();
         }
-        remoteGlobalMetadataManager = new RemoteGlobalMetadataManager(blobStoreRepository, clusterSettings, threadpool);
-        remoteIndexMetadataManager = new RemoteIndexMetadataManager(blobStoreRepository, clusterSettings, threadpool);
+        String clusterName = ClusterName.CLUSTER_NAME_SETTING.get(settings).value();
+        remoteGlobalMetadataManager = new RemoteGlobalMetadataManager(blobStoreRepository, clusterSettings,threadpool, getBlobStoreTransferService(), clusterName);
+        remoteIndexMetadataManager = new RemoteIndexMetadataManager(blobStoreRepository, clusterSettings,threadpool, clusterName, blobStoreRepository.getNamedXContentRegistry(), getBlobStoreTransferService());
         remoteClusterStateAttributesManager = new RemoteClusterStateAttributesManager(blobStoreRepository, threadpool);
         remoteManifestManager = new RemoteManifestManager(blobStoreRepository, clusterSettings, nodeId);
         remoteClusterStateCleanupManager.start();
@@ -851,7 +853,6 @@ public class RemoteClusterStateService implements Closeable {
         for (UploadedIndexMetadata indexMetadata : indicesToRead) {
             asyncMetadataReadActions.add(
                 remoteIndexMetadataManager.getAsyncIndexMetadataReadAction(
-                    clusterName,
                     clusterUUID,
                     indexMetadata.getUploadedFilename(),
                     listener
@@ -1085,8 +1086,10 @@ public class RemoteClusterStateService implements Closeable {
         }).collect(Collectors.toList());
 
         Map<String, UploadedMetadataAttribute> updatedCustomMetadata = new HashMap<>();
-        for (String customType : diff.getCustomMetadataUpdated().keySet()) {
-            updatedCustomMetadata.put(customType, manifest.getCustomMetadataMap().get(customType));
+        if (diff.getCustomMetadataUpdated() != null) {
+            for (String customType : diff.getCustomMetadataUpdated().keySet()) {
+                updatedCustomMetadata.put(customType, manifest.getCustomMetadataMap().get(customType));
+            }
         }
         ClusterState updatedClusterState = readClusterStateInParallel(
             previousState,
@@ -1110,13 +1113,15 @@ public class RemoteClusterStateService implements Closeable {
         }
         if (diff.getCustomMetadataUpdated() != null) {
             for (String customType : diff.getCustomMetadataUpdated().keySet()) {
-                Metadata.Custom custom = remoteGlobalMetadataManager.getCustomsMetadata(clusterName, manifest.getClusterUUID(),
+                Metadata.Custom custom = remoteGlobalMetadataManager.getCustomsMetadata(manifest.getClusterUUID(),
                     manifest.getCustomMetadataMap().get(customType).getUploadedFilename(), customType);
                 metadataBuilder.putCustom(customType, custom);
             }
         }
-        for (String customType : diff.getCustomMetadataDeleted()) {
-            metadataBuilder.removeCustom(customType);
+        if (diff.getCustomMetadataDeleted() != null) {
+            for (String customType : diff.getCustomMetadataDeleted()) {
+                metadataBuilder.removeCustom(customType);
+            }
         }
 
         HashMap<String, IndexRoutingTable> indexRoutingTables = new HashMap<>(updatedClusterState.getRoutingTable().getIndicesRouting());
@@ -1169,6 +1174,13 @@ public class RemoteClusterStateService implements Closeable {
 
     public RemoteClusterStateCleanupManager getCleanupManager() {
         return remoteClusterStateCleanupManager;
+    }
+
+    private BlobStoreTransferService getBlobStoreTransferService() {
+        if (blobStoreTransferService == null) {
+            blobStoreTransferService = new BlobStoreTransferService(getBlobStore(), threadpool);
+        }
+        return blobStoreTransferService;
     }
 
     Set<String> getAllClusterUUIDs(String clusterName) throws IOException {
@@ -1271,21 +1283,21 @@ public class RemoteClusterStateService implements Closeable {
         }
         final Map<String, UploadedIndexMetadata> secondIndices = second.getIndices()
             .stream()
-            .collect(Collectors.toMap(md -> md.getIndexName(), Function.identity()));
+            .collect(Collectors.toMap(UploadedIndexMetadata::getIndexName, Function.identity()));
         for (UploadedIndexMetadata uploadedIndexMetadata : first.getIndices()) {
             final IndexMetadata firstIndexMetadata = remoteIndexMetadataManager.getIndexMetadata(
-                clusterName,
+                uploadedIndexMetadata,
                 first.getClusterUUID(),
-                uploadedIndexMetadata
+                first.getCodecVersion()
             );
             final UploadedIndexMetadata secondUploadedIndexMetadata = secondIndices.get(uploadedIndexMetadata.getIndexName());
             if (secondUploadedIndexMetadata == null) {
                 return false;
             }
             final IndexMetadata secondIndexMetadata = remoteIndexMetadataManager.getIndexMetadata(
-                clusterName,
+                secondUploadedIndexMetadata,
                 second.getClusterUUID(),
-                secondUploadedIndexMetadata
+                second.getCodecVersion()
             );
             if (firstIndexMetadata.equals(secondIndexMetadata) == false) {
                 return false;

@@ -17,6 +17,7 @@ import org.opensearch.common.blobstore.BlobStore;
 import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.core.index.Index;
+import org.opensearch.core.xcontent.NamedXContentRegistry;
 import org.opensearch.index.remote.RemoteStoreUtils;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.test.OpenSearchTestCase;
@@ -84,7 +85,7 @@ public class RemoteManifestManagerTests extends OpenSearchTestCase {
             .numberOfReplicas(0)
             .build();
 
-        String indexMetadataFileName = RemoteIndexMetadataManager.indexMetadataFileName(indexMetadata);
+        String indexMetadataFileName = new RemoteIndexMetadata(indexMetadata, "cluster-uuid", null, NamedXContentRegistry.EMPTY).generateBlobFileName();
         String[] splittedIndexMetadataFileName = indexMetadataFileName.split(DELIMITER);
         assertEquals(4, indexMetadataFileName.split(DELIMITER).length);
         assertEquals(METADATA_FILE_PREFIX, splittedIndexMetadataFileName[0]);
