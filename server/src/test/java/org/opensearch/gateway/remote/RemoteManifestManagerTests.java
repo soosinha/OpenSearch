@@ -19,12 +19,14 @@ import org.opensearch.common.settings.Settings;
 import org.opensearch.core.index.Index;
 import org.opensearch.core.xcontent.NamedXContentRegistry;
 import org.opensearch.index.remote.RemoteStoreUtils;
+import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.test.OpenSearchTestCase;
 import org.junit.After;
 import org.junit.Before;
 
 import java.io.IOException;
+import org.opensearch.threadpool.TestThreadPool;
 
 import static org.opensearch.gateway.remote.RemoteClusterStateService.INDEX_METADATA_CURRENT_CODEC_VERSION;
 import static org.opensearch.gateway.remote.RemoteClusterStateServiceTests.generateClusterStateWithOneIndex;
@@ -43,12 +45,14 @@ public class RemoteManifestManagerTests extends OpenSearchTestCase {
     private ClusterSettings clusterSettings;
     private BlobStoreRepository blobStoreRepository;
     private BlobStore blobStore;
+    private BlobStoreTransferService blobStoreTransferService;
 
     @Before
     public void setup() {
         clusterSettings = new ClusterSettings(Settings.EMPTY, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
         blobStoreRepository = mock(BlobStoreRepository.class);
         remoteManifestManager = new RemoteManifestManager(blobStoreRepository, clusterSettings, "test-node-id");
+        blobStoreTransferService = mock(BlobStoreTransferService.class);
         blobStore = mock(BlobStore.class);
         when(blobStoreRepository.blobStore()).thenReturn(blobStore);
     }
@@ -85,7 +89,7 @@ public class RemoteManifestManagerTests extends OpenSearchTestCase {
             .numberOfReplicas(0)
             .build();
 
-        String indexMetadataFileName = new RemoteIndexMetadata(indexMetadata, "cluster-uuid", null, NamedXContentRegistry.EMPTY).generateBlobFileName();
+        String indexMetadataFileName = new RemoteIndexMetadata(indexMetadata, "cluster-uuid", blobStoreTransferService, blobStoreRepository, "cluster-name", new TestThreadPool("test")).generateBlobFileName();
         String[] splittedIndexMetadataFileName = indexMetadataFileName.split(DELIMITER);
         assertEquals(4, indexMetadataFileName.split(DELIMITER).length);
         assertEquals(METADATA_FILE_PREFIX, splittedIndexMetadataFileName[0]);

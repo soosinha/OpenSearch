@@ -11,13 +11,17 @@ package org.opensearch.gateway.remote;
 import java.io.IOException;
 import java.io.InputStream;
 import org.opensearch.common.CheckedRunnable;
+import org.opensearch.core.action.ActionListener;
 import org.opensearch.core.common.bytes.BytesReference;
 
 public interface RemoteObject <T> {
     public T get();
     public String clusterUUID();
-    public RemoteObjectStore<T> getBackingStore();
     public InputStream serialize() throws IOException;
     public T deserialize(InputStream inputStream) throws IOException;
+
+    public CheckedRunnable<IOException> writeAsync(ActionListener<Void> listener);
+    public T read() throws IOException;
+    public void readAsync(ActionListener<T> listener);
 
 }

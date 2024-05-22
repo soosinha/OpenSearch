@@ -764,7 +764,7 @@ public class RemoteClusterStateService implements Closeable {
         }
         String clusterName = ClusterName.CLUSTER_NAME_SETTING.get(settings).value();
         remoteGlobalMetadataManager = new RemoteGlobalMetadataManager(blobStoreRepository, clusterSettings,threadpool, getBlobStoreTransferService(), clusterName);
-        remoteIndexMetadataManager = new RemoteIndexMetadataManager(blobStoreRepository, clusterSettings,threadpool, clusterName, blobStoreRepository.getNamedXContentRegistry(), getBlobStoreTransferService());
+        remoteIndexMetadataManager = new RemoteIndexMetadataManager(blobStoreRepository, clusterSettings,threadpool, clusterName, getBlobStoreTransferService());
         remoteClusterStateAttributesManager = new RemoteClusterStateAttributesManager(blobStoreRepository, threadpool);
         remoteManifestManager = new RemoteManifestManager(blobStoreRepository, clusterSettings, nodeId);
         remoteClusterStateCleanupManager.start();

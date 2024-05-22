@@ -17,11 +17,13 @@ import java.io.InputStream;
 import java.util.List;
 import org.opensearch.cluster.metadata.TemplatesMetadata;
 import org.opensearch.common.io.Streams;
-import org.opensearch.core.xcontent.NamedXContentRegistry;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadata;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadataAttribute;
 import org.opensearch.index.remote.RemoteStoreUtils;
+import org.opensearch.index.translog.transfer.BlobStoreTransferService;
+import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
+import org.opensearch.threadpool.ThreadPool;
 
 public class RemoteTemplatesMetadata extends AbstractRemoteBlobStoreObject<TemplatesMetadata> {
 
@@ -34,23 +36,20 @@ public class RemoteTemplatesMetadata extends AbstractRemoteBlobStoreObject<Templ
     );
     private TemplatesMetadata templatesMetadata;
     private long metadataVersion;
-    private final RemoteObjectStore<TemplatesMetadata> backingStore;
     private String blobName;
-    private final NamedXContentRegistry xContentRegistry;
     private final String clusterUUID;
-    public RemoteTemplatesMetadata(TemplatesMetadata templatesMetadata, long metadataVersion,  String clusterUUID, RemoteObjectBlobStore<TemplatesMetadata> backingStore,
-        NamedXContentRegistry xContentRegistry) {
+    public RemoteTemplatesMetadata(TemplatesMetadata templatesMetadata, long metadataVersion,  String clusterUUID, BlobStoreTransferService blobStoreTransferService, BlobStoreRepository blobStoreRepository, String clusterName,
+        ThreadPool threadPool) {
+        super(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
         this.templatesMetadata = templatesMetadata;
         this.metadataVersion = metadataVersion;
-        this.backingStore = backingStore;
-        this.xContentRegistry = xContentRegistry;
         this.clusterUUID = clusterUUID;
     }
 
-    public RemoteTemplatesMetadata(String blobName, String clusterUUID, RemoteObjectStore<TemplatesMetadata> backingStore, NamedXContentRegistry xContentRegistry) {
+    public RemoteTemplatesMetadata(String blobName, String clusterUUID, BlobStoreTransferService blobStoreTransferService, BlobStoreRepository blobStoreRepository, String clusterName,
+        ThreadPool threadPool) {
+        super(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
         this.blobName = blobName;
-        this.backingStore = backingStore;
-        this.xContentRegistry = xContentRegistry;
         this.clusterUUID = clusterUUID;
     }
 
@@ -74,10 +73,8 @@ public class RemoteTemplatesMetadata extends AbstractRemoteBlobStoreObject<Templ
             RemoteStoreUtils.invertLong(System.currentTimeMillis()),
             String.valueOf(GLOBAL_METADATA_CURRENT_CODEC_VERSION)
         );
-        assert backingStore instanceof RemoteObjectBlobStore;
-        RemoteObjectBlobStore<TemplatesMetadata> blobStore = (RemoteObjectBlobStore<TemplatesMetadata>) backingStore;
         // setting the full blob path with name for future access
-        this.blobName = blobStore.getBlobPathForUpload(this).buildAsString() + blobFileName;
+        this.blobName = getBlobPathForUpload().buildAsString() + blobFileName;
         return blobFileName;
     }
 
@@ -92,18 +89,13 @@ public class RemoteTemplatesMetadata extends AbstractRemoteBlobStoreObject<Templ
     }
 
     @Override
-    public RemoteObjectStore<TemplatesMetadata> getBackingStore() {
-        return backingStore;
-    }
-
-    @Override
     public InputStream serialize() throws IOException {
-        return TEMPLATES_METADATA_FORMAT.serialize(templatesMetadata, generateBlobFileName(), getBackingStore().getCompressor(), RemoteClusterStateUtils.FORMAT_PARAMS).streamInput();
+        return TEMPLATES_METADATA_FORMAT.serialize(templatesMetadata, generateBlobFileName(), getCompressor(), RemoteClusterStateUtils.FORMAT_PARAMS).streamInput();
     }
 
     @Override
     public TemplatesMetadata deserialize(InputStream inputStream) throws IOException {
-        return TEMPLATES_METADATA_FORMAT.deserialize(blobName, xContentRegistry, Streams.readFully(inputStream));
+        return TEMPLATES_METADATA_FORMAT.deserialize(blobName, getBlobStoreRepository().getNamedXContentRegistry(), Streams.readFully(inputStream));
     }
 
     @Override

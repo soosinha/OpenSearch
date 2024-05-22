@@ -10,20 +10,20 @@ package org.opensearch.gateway.remote;
 
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.METADATA_NAME_FORMAT;
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.PATH_DELIMITER;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.GLOBAL_METADATA_CURRENT_CODEC_VERSION;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 import org.opensearch.cluster.coordination.CoordinationMetadata;
-import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.common.io.Streams;
-import org.opensearch.core.xcontent.NamedXContentRegistry;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadata;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadataAttribute;
 import org.opensearch.index.remote.RemoteStoreUtils;
+import org.opensearch.index.translog.transfer.BlobStoreTransferService;
+import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
+import org.opensearch.threadpool.ThreadPool;
 
 public class RemoteCoordinationMetadata extends AbstractRemoteBlobStoreObject<CoordinationMetadata> {
 
@@ -36,24 +36,21 @@ public class RemoteCoordinationMetadata extends AbstractRemoteBlobStoreObject<Co
 
     private CoordinationMetadata coordinationMetadata;
     private long metadataVersion;
-    private final RemoteObjectStore<CoordinationMetadata> backingStore;
     private String blobName;
-    private final NamedXContentRegistry xContentRegistry;
     private final String clusterUUID;
 
-    public RemoteCoordinationMetadata(CoordinationMetadata coordinationMetadata, long metadataVersion,  String clusterUUID, RemoteObjectBlobStore<CoordinationMetadata> backingStore,
-        NamedXContentRegistry xContentRegistry) {
+    public RemoteCoordinationMetadata(CoordinationMetadata coordinationMetadata, long metadataVersion,  String clusterUUID, BlobStoreTransferService blobStoreTransferService, BlobStoreRepository blobStoreRepository, String clusterName,
+        ThreadPool threadPool) {
+        super(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
         this.coordinationMetadata = coordinationMetadata;
         this.metadataVersion = metadataVersion;
-        this.backingStore = backingStore;
-        this.xContentRegistry = xContentRegistry;
         this.clusterUUID = clusterUUID;
     }
 
-    public RemoteCoordinationMetadata(String blobName, String clusterUUID, RemoteObjectStore<CoordinationMetadata> backingStore, NamedXContentRegistry xContentRegistry) {
+    public RemoteCoordinationMetadata(String blobName, String clusterUUID, BlobStoreTransferService blobStoreTransferService, BlobStoreRepository blobStoreRepository, String clusterName,
+        ThreadPool threadPool) {
+        super(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
         this.blobName = blobName;
-        this.backingStore = backingStore;
-        this.xContentRegistry = xContentRegistry;
         this.clusterUUID = clusterUUID;
     }
 
@@ -77,10 +74,8 @@ public class RemoteCoordinationMetadata extends AbstractRemoteBlobStoreObject<Co
             RemoteStoreUtils.invertLong(System.currentTimeMillis()),
             String.valueOf(GLOBAL_METADATA_CURRENT_CODEC_VERSION)
         );
-        assert backingStore instanceof RemoteObjectBlobStore;
-        RemoteObjectBlobStore<CoordinationMetadata> blobStore = (RemoteObjectBlobStore<CoordinationMetadata>) backingStore;
         // setting the full blob path with name for future access
-        this.blobName = blobStore.getBlobPathForUpload(this).buildAsString() + blobFileName;
+        this.blobName = getBlobPathForUpload().buildAsString() + blobFileName;
         return blobFileName;
     }
 
@@ -95,18 +90,13 @@ public class RemoteCoordinationMetadata extends AbstractRemoteBlobStoreObject<Co
     }
 
     @Override
-    public RemoteObjectStore<CoordinationMetadata> getBackingStore() {
-        return backingStore;
-    }
-
-    @Override
     public InputStream serialize() throws IOException {
-        return COORDINATION_METADATA_FORMAT.serialize(coordinationMetadata, generateBlobFileName(), getBackingStore().getCompressor(), RemoteClusterStateUtils.FORMAT_PARAMS).streamInput();
+        return COORDINATION_METADATA_FORMAT.serialize(coordinationMetadata, generateBlobFileName(), getCompressor(), RemoteClusterStateUtils.FORMAT_PARAMS).streamInput();
     }
 
     @Override
     public CoordinationMetadata deserialize(InputStream inputStream) throws IOException {
-        return COORDINATION_METADATA_FORMAT.deserialize(blobName, xContentRegistry, Streams.readFully(inputStream));
+        return COORDINATION_METADATA_FORMAT.deserialize(blobName, getBlobStoreRepository().getNamedXContentRegistry(), Streams.readFully(inputStream));
     }
 
     @Override

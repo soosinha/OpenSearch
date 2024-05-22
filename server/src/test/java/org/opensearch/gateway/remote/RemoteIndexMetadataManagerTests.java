@@ -10,7 +10,6 @@ package org.opensearch.gateway.remote;
 
 import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.Settings;
-import org.opensearch.core.xcontent.NamedXContentRegistry;
 import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.test.OpenSearchTestCase;
@@ -31,7 +30,7 @@ public class RemoteIndexMetadataManagerTests extends OpenSearchTestCase {
         clusterSettings = new ClusterSettings(Settings.EMPTY, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
         blobStoreRepository = mock(BlobStoreRepository.class);
         blobStoreTransferService = mock(BlobStoreTransferService.class);
-        remoteIndexMetadataManager = new RemoteIndexMetadataManager(blobStoreRepository, clusterSettings, new TestThreadPool("test"),"cluster-name", NamedXContentRegistry.EMPTY, blobStoreTransferService);
+        remoteIndexMetadataManager = new RemoteIndexMetadataManager(blobStoreRepository, clusterSettings, new TestThreadPool("test"),"cluster-name", blobStoreTransferService);
     }
 
     @After

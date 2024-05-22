@@ -17,11 +17,13 @@ import java.io.InputStream;
 import java.util.List;
 import org.opensearch.common.io.Streams;
 import org.opensearch.common.settings.Settings;
-import org.opensearch.core.xcontent.NamedXContentRegistry;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadata;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadataAttribute;
 import org.opensearch.index.remote.RemoteStoreUtils;
+import org.opensearch.index.translog.transfer.BlobStoreTransferService;
+import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
+import org.opensearch.threadpool.ThreadPool;
 
 public class RemotePersistentSettingsMetadata extends AbstractRemoteBlobStoreObject<Settings> {
 
@@ -35,24 +37,21 @@ public class RemotePersistentSettingsMetadata extends AbstractRemoteBlobStoreObj
 
     private Settings persistentSettings;
     private long metadataVersion;
-    private final RemoteObjectStore<Settings> backingStore;
     private String blobName;
-    private final NamedXContentRegistry xContentRegistry;
     private final String clusterUUID;
 
-    public RemotePersistentSettingsMetadata(Settings settings, long metadataVersion,  String clusterUUID, RemoteObjectBlobStore<Settings> backingStore,
-        NamedXContentRegistry xContentRegistry) {
+    public RemotePersistentSettingsMetadata(Settings settings, long metadataVersion,  String clusterUUID, BlobStoreTransferService blobStoreTransferService, BlobStoreRepository blobStoreRepository, String clusterName,
+        ThreadPool threadPool) {
+        super(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
         this.persistentSettings = settings;
         this.metadataVersion = metadataVersion;
-        this.backingStore = backingStore;
-        this.xContentRegistry = xContentRegistry;
         this.clusterUUID = clusterUUID;
     }
 
-    public RemotePersistentSettingsMetadata(String blobName, String clusterUUID, RemoteObjectStore<Settings> backingStore, NamedXContentRegistry xContentRegistry) {
+    public RemotePersistentSettingsMetadata(String blobName, String clusterUUID, BlobStoreTransferService blobStoreTransferService, BlobStoreRepository blobStoreRepository, String clusterName,
+        ThreadPool threadPool) {
+        super(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
         this.blobName = blobName;
-        this.backingStore = backingStore;
-        this.xContentRegistry = xContentRegistry;
         this.clusterUUID = clusterUUID;
     }
 
@@ -75,10 +74,8 @@ public class RemotePersistentSettingsMetadata extends AbstractRemoteBlobStoreObj
             RemoteStoreUtils.invertLong(System.currentTimeMillis()),
             String.valueOf(GLOBAL_METADATA_CURRENT_CODEC_VERSION)
         );
-        assert backingStore instanceof RemoteObjectBlobStore;
-        RemoteObjectBlobStore<Settings> blobStore = (RemoteObjectBlobStore<Settings>) backingStore;
         // setting the full blob path with name for future access
-        this.blobName = blobStore.getBlobPathForUpload(this).buildAsString() + blobFileName;
+        this.blobName = getBlobPathForUpload().buildAsString() + blobFileName;
         return blobFileName;
     }
 
@@ -92,19 +89,15 @@ public class RemotePersistentSettingsMetadata extends AbstractRemoteBlobStoreObj
         return clusterUUID;
     }
 
-    @Override
-    public RemoteObjectStore<Settings> getBackingStore() {
-        return backingStore;
-    }
 
     @Override
     public InputStream serialize() throws IOException {
-        return SETTINGS_METADATA_FORMAT.serialize(persistentSettings, generateBlobFileName(), getBackingStore().getCompressor(), RemoteClusterStateUtils.FORMAT_PARAMS).streamInput();
+        return SETTINGS_METADATA_FORMAT.serialize(persistentSettings, generateBlobFileName(), getCompressor(), RemoteClusterStateUtils.FORMAT_PARAMS).streamInput();
     }
 
     @Override
     public Settings deserialize(InputStream inputStream) throws IOException {
-        return SETTINGS_METADATA_FORMAT.deserialize(blobName, xContentRegistry, Streams.readFully(inputStream));
+        return SETTINGS_METADATA_FORMAT.deserialize(blobName, getBlobStoreRepository().getNamedXContentRegistry(), Streams.readFully(inputStream));
     }
 
     @Override
