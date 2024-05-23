@@ -964,7 +964,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             PARSER.declareString(ConstructingObjectParser.constructorArg(), COMPONENT_PREFIX_FIELD);
         }
 
-        static final String COMPONENT_PREFIX = "index--";
+        public static final String COMPONENT_PREFIX = "index--";
         private final String componentPrefix;
         private final String indexName;
         private final String indexUUID;

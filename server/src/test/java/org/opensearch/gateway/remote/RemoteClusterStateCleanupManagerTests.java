@@ -69,6 +69,7 @@ import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.COORDINA
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.GLOBAL_METADATA_PATH_TOKEN;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.SETTING_METADATA;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.TEMPLATES_METADATA;
+import static org.opensearch.gateway.remote.RemoteIndexMetadata.INDEX_PATH_TOKEN;
 import static org.opensearch.gateway.remote.RemoteManifestManager.MANIFEST_FILE_PREFIX;
 import static org.opensearch.gateway.remote.RemoteManifestManager.MANIFEST_PATH_TOKEN;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.REMOTE_STORE_CLUSTER_STATE_REPOSITORY_NAME_ATTRIBUTE_KEY;

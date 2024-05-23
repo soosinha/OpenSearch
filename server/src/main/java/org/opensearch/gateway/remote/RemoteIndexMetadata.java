@@ -108,10 +108,4 @@ public class RemoteIndexMetadata extends AbstractRemoteBlobStoreObject<IndexMeta
         return INDEX_METADATA_FORMAT.deserialize(blobName, getBlobStoreRepository().getNamedXContentRegistry(), Streams.readFully(inputStream));
     }
 
-    @Override
-    public String toString() {
-        return blobName + clusterUUID;
-    }
-
-
 }

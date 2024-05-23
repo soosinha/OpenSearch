@@ -56,7 +56,6 @@ public class RemoteRoutingTableServiceTests extends OpenSearchTestCase {
         remoteRoutingTableService = new RemoteRoutingTableService(
             repositoriesServiceSupplier,
             settings,
-            clusterSettings,
             new ThreadPool(settings)
         );
     }
@@ -75,7 +74,6 @@ public class RemoteRoutingTableServiceTests extends OpenSearchTestCase {
             () -> new RemoteRoutingTableService(
                 repositoriesServiceSupplier,
                 settings,
-                new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS),
                 new ThreadPool(settings)
             )
         );

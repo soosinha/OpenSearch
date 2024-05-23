@@ -1648,9 +1648,9 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
             for (Map.Entry<String, String> entry : customFileMap.entrySet()) {
                 String custom = entry.getKey();
                 String fileName = entry.getValue();
-                when(blobContainer.readBlob(RemoteGlobalMetadataManager.CUSTOM_METADATA_FORMAT.blobName(fileName))).thenAnswer(
+                when(blobContainer.readBlob(RemoteCustomMetadata.CUSTOM_METADATA_FORMAT.blobName(fileName))).thenAnswer(
                     (invocation) -> {
-                        BytesReference bytesReference = RemoteGlobalMetadataManager.CUSTOM_METADATA_FORMAT.serialize(
+                        BytesReference bytesReference = RemoteCustomMetadata.CUSTOM_METADATA_FORMAT.serialize(
                             metadata.custom(custom),
                             fileName,
                             blobStoreRepository.getCompressor(),
