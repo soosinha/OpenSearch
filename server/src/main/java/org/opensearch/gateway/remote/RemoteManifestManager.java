@@ -44,7 +44,7 @@ public class RemoteManifestManager {
     public static final String MANIFEST_PATH_TOKEN = "manifest";
     public static final String MANIFEST_FILE_PREFIX = "manifest";
     public static final String METADATA_MANIFEST_NAME_FORMAT = "%s";
-    public static final int MANIFEST_CURRENT_CODEC_VERSION = ClusterMetadataManifest.CODEC_V4;
+    public static final int MANIFEST_CURRENT_CODEC_VERSION = ClusterMetadataManifest.CODEC_V3;
     public static final int SPLITED_MANIFEST_FILE_LENGTH = 6; // file name manifest__term__version__C/P__timestamp__codecversion
 
     public static final TimeValue METADATA_MANIFEST_UPLOAD_TIMEOUT_DEFAULT = TimeValue.timeValueMillis(20000);
@@ -141,29 +141,29 @@ public class RemoteManifestManager {
                 committed,
                 MANIFEST_CURRENT_CODEC_VERSION
             );
-            final ClusterMetadataManifest manifest = new ClusterMetadataManifest(
-                clusterState.term(),
-                clusterState.getVersion(),
-                clusterState.metadata().clusterUUID(),
-                clusterState.stateUUID(),
-                Version.CURRENT,
-                nodeId,
-                committed,
-                MANIFEST_CURRENT_CODEC_VERSION,
-                null,
-                uploadedIndexMetadata,
-                previousClusterUUID,
-                clusterState.metadata().clusterUUIDCommitted(),
-                uploadedCoordinationMetadata,
-                uploadedSettingsMetadata,
-                uploadedTemplatesMetadata,
-                uploadedCustomMetadataMap,
-                uploadedDiscoveryNodesMetadata,
-                uploadedClusterBlocksMetadata,
-                clusterDiffManifest,
-                clusterState.getRoutingTable().version(),
-                routingIndexMetadata
-            );
+            ClusterMetadataManifest.Builder manifestBuilder = ClusterMetadataManifest.builder();
+            manifestBuilder.clusterTerm(clusterState.term())
+                .stateVersion(clusterState.getVersion())
+                .clusterUUID(clusterState.metadata().clusterUUID())
+                .stateUUID(clusterState.stateUUID())
+                .opensearchVersion(Version.CURRENT)
+                .nodeId(nodeId)
+                .committed(committed)
+                .codecVersion(MANIFEST_CURRENT_CODEC_VERSION)
+                .indices(uploadedIndexMetadata)
+                .previousClusterUUID(previousClusterUUID)
+                .clusterUUIDCommitted(clusterState.metadata().clusterUUIDCommitted())
+                .coordinationMetadata(uploadedCoordinationMetadata)
+                .settingMetadata(uploadedSettingsMetadata)
+                .templatesMetadata(uploadedTemplatesMetadata)
+                .customMetadataMap(uploadedCustomMetadataMap)
+                .discoveryNodesMetadata(uploadedDiscoveryNodesMetadata)
+                .clusterBlocksMetadata(uploadedClusterBlocksMetadata)
+                .diffManifest(clusterDiffManifest)
+                .routingTableVersion(clusterState.getRoutingTable().version())
+                .indicesRouting(routingIndexMetadata)
+                .metadataVersion(clusterState.metadata().version());
+            final ClusterMetadataManifest manifest = manifestBuilder.build();
             writeMetadataManifest(clusterState.getClusterName().value(), clusterState.metadata().clusterUUID(), manifest, manifestFileName);
             return manifest;
         }

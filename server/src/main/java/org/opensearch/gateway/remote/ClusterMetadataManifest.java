@@ -43,8 +43,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
     public static final int CODEC_V0 = 0; // Older codec version, where we haven't introduced codec versions for manifest.
     public static final int CODEC_V1 = 1; // In Codec V1 we have introduced global-metadata and codec version in Manifest file.
     public static final int CODEC_V2 = 2; // In Codec V2, there are seperate metadata files rather than a single global metadata file.
-    public static final int CODEC_V3 = 3; // In Codec V3, we introduced diff as part of manifest.
-    public static final int CODEC_V4 = 4; // In Codec V4, we introduce index routing-metadata in manifest file.
+    public static final int CODEC_V3 = 3; // In Codec V3, we introduced index routing-metadata, diff as part of manifest.
 
     private static final ParseField CLUSTER_TERM_FIELD = new ParseField("cluster_term");
     private static final ParseField STATE_VERSION_FIELD = new ParseField("state_version");
@@ -58,6 +57,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
     private static final ParseField INDICES_FIELD = new ParseField("indices");
     private static final ParseField PREVIOUS_CLUSTER_UUID = new ParseField("previous_cluster_uuid");
     private static final ParseField CLUSTER_UUID_COMMITTED = new ParseField("cluster_uuid_committed");
+    private static final ParseField METADATA_VERSION = new ParseField("metadata_version");
     private static final ParseField UPLOADED_COORDINATOR_METADATA = new ParseField("uploaded_coordinator_metadata");
     private static final ParseField UPLOADED_SETTINGS_METADATA = new ParseField("uploaded_settings_metadata");
     private static final ParseField UPLOADED_TEMPLATES_METADATA = new ParseField("uploaded_templates_metadata");
@@ -93,6 +93,16 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             .settingMetadata(settingsMetadata(fields))
             .templatesMetadata(templatesMetadata(fields))
             .customMetadataMap(customMetadata(fields));
+    }
+
+    private static ClusterMetadataManifest.Builder manifestV3Builder(Object[] fields) {
+        return manifestV2Builder(fields)
+            .discoveryNodesMetadata(discoveryNodesMetadata(fields))
+            .clusterBlocksMetadata(clusterBlocksMetadata(fields))
+            .diffManifest(diffManifest(fields))
+            .routingTableVersion(routingTableVersion(fields))
+            .indicesRouting(indicesRouting(fields))
+            .metadataVersion(metadataVersion(fields));
     }
 
     private static long term(Object[] fields) {
@@ -180,6 +190,10 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         return (List<UploadedIndexMetadata>) fields[19];
     }
 
+    private static long metadataVersion(Object[] fields) {
+        return (long) fields[20];
+    }
+
     private static final ConstructingObjectParser<ClusterMetadataManifest, Void> PARSER_V0 = new ConstructingObjectParser<>(
         "cluster_metadata_manifest",
         fields -> manifestV0Builder(fields).build()
@@ -197,62 +211,16 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
 
     private static final ConstructingObjectParser<ClusterMetadataManifest, Void> PARSER_V3 = new ConstructingObjectParser<>(
         "cluster_metadata_manifest",
-        fields -> ClusterMetadataManifest.builder()
-            .clusterTerm(term(fields))
-            .stateVersion(version(fields))
-            .clusterUUID(clusterUUID(fields))
-            .stateUUID(stateUUID(fields))
-            .opensearchVersion(opensearchVersion(fields))
-            .nodeId(nodeId(fields))
-            .committed(committed(fields))
-            .codecVersion(codecVersion(fields))
-            .indices(indices(fields))
-            .previousClusterUUID(previousClusterUUID(fields))
-            .clusterUUIDCommitted(clusterUUIDCommitted(fields))
-            .coordinationMetadata(coordinationMetadata(fields))
-            .settingMetadata(settingsMetadata(fields))
-            .templatesMetadata(templatesMetadata(fields))
-            .customMetadataMap(customMetadata(fields))
-            .discoveryNodesMetadata(discoveryNodesMetadata(fields))
-            .clusterBlocksMetadata(clusterBlocksMetadata(fields))
-            .diffManifest(diffManifest(fields))
-            .build()
+        fields -> manifestV3Builder(fields).build()
     );
 
-    private static final ConstructingObjectParser<ClusterMetadataManifest, Void> PARSER_V4 = new ConstructingObjectParser<>(
-        "cluster_metadata_manifest",
-        fields -> ClusterMetadataManifest.builder()
-            .clusterTerm(term(fields))
-            .stateVersion(version(fields))
-            .clusterUUID(clusterUUID(fields))
-            .stateUUID(stateUUID(fields))
-            .opensearchVersion(opensearchVersion(fields))
-            .nodeId(nodeId(fields))
-            .committed(committed(fields))
-            .codecVersion(codecVersion(fields))
-            .indices(indices(fields))
-            .previousClusterUUID(previousClusterUUID(fields))
-            .clusterUUIDCommitted(clusterUUIDCommitted(fields))
-            .coordinationMetadata(coordinationMetadata(fields))
-            .settingMetadata(settingsMetadata(fields))
-            .templatesMetadata(templatesMetadata(fields))
-            .customMetadataMap(customMetadata(fields))
-            .discoveryNodesMetadata(discoveryNodesMetadata(fields))
-            .clusterBlocksMetadata(clusterBlocksMetadata(fields))
-            .diffManifest(diffManifest(fields))
-            .routingTableVersion(routingTableVersion(fields))
-            .indicesRouting(indicesRouting(fields))
-            .build()
-    );
-
-    private static final ConstructingObjectParser<ClusterMetadataManifest, Void> CURRENT_PARSER = PARSER_V4;
+    private static final ConstructingObjectParser<ClusterMetadataManifest, Void> CURRENT_PARSER = PARSER_V3;
 
     static {
         declareParser(PARSER_V0, CODEC_V0);
         declareParser(PARSER_V1, CODEC_V1);
         declareParser(PARSER_V2, CODEC_V2);
         declareParser(PARSER_V3, CODEC_V3);
-        declareParser(PARSER_V4, CODEC_V4);
     }
 
     private static void declareParser(ConstructingObjectParser<ClusterMetadataManifest, Void> parser, long codec_version) {
@@ -313,19 +281,19 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                 (p, c) -> ClusterStateDiffManifest.fromXContent(p),
                 DIFF_MANIFEST
             );
-        }
-        if (codec_version >= CODEC_V4) {
             parser.declareLong(ConstructingObjectParser.constructorArg(), ROUTING_TABLE_VERSION_FIELD);
             parser.declareObjectArray(
                 ConstructingObjectParser.constructorArg(),
                 (p, c) -> UploadedIndexMetadata.fromXContent(p),
                 INDICES_ROUTING_FIELD
             );
+            parser.declareLong(ConstructingObjectParser.constructorArg(), METADATA_VERSION);
         }
     }
 
     private final int codecVersion;
     private final String globalMetadataFileName;
+    private final long metadataVersion;
     private final UploadedMetadataAttribute uploadedCoordinationMetadata;
     private final UploadedMetadataAttribute uploadedSettingsMetadata;
     private final UploadedMetadataAttribute uploadedTemplatesMetadata;
@@ -395,6 +363,11 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
     }
 
     private static final Logger logger = LogManager.getLogger(ClusterMetadataManifest.class);
+
+    public long getMetadataVersion() {
+        return metadataVersion;
+    }
+
     public UploadedMetadataAttribute getCoordinationMetadata() {
         return uploadedCoordinationMetadata;
     }
@@ -458,7 +431,8 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         UploadedMetadataAttribute clusterBlocksMetadata,
         ClusterStateDiffManifest diffManifest,
         long routingTableVersion,
-        List<UploadedIndexMetadata> indicesRouting
+        List<UploadedIndexMetadata> indicesRouting,
+        long metadataVersion
     ) {
         this.clusterTerm = clusterTerm;
         this.stateVersion = version;
@@ -483,6 +457,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         this.diffManifest = diffManifest;
         this.routingTableVersion = routingTableVersion;
         this.indicesRouting = Collections.unmodifiableList(indicesRouting);
+        this.metadataVersion = metadataVersion;
     }
 
     public ClusterMetadataManifest(StreamInput in) throws IOException {
@@ -512,6 +487,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             this.diffManifest = null;
             this.routingTableVersion = in.readLong();
             this.indicesRouting = Collections.unmodifiableList(in.readList(UploadedIndexMetadata::new));
+            this.metadataVersion = in.readLong();
         } else if (in.getVersion().onOrAfter(Version.V_2_12_0)) {
             this.codecVersion = in.readInt();
             this.globalMetadataFileName = in.readString();
@@ -524,6 +500,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             this.uploadedDiscoveryNodesMetadata = null;
             this.uploadedClusterBlocksMetadata = null;
             this.diffManifest = null;
+            this.metadataVersion = -1;
         } else {
             this.codecVersion = CODEC_V0; // Default codec
             this.globalMetadataFileName = null;
@@ -536,6 +513,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             this.uploadedDiscoveryNodesMetadata = null;
             this.uploadedClusterBlocksMetadata = null;
             this.diffManifest = null;
+            this.metadataVersion = -1;
         }
     }
 
@@ -585,6 +563,16 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                 getTemplatesMetadata().toXContent(builder, params);
                 builder.endObject();
             }
+            builder.startObject(UPLOADED_CUSTOM_METADATA.getPreferredName());
+            for (UploadedMetadataAttribute attribute : getCustomMetadataMap().values()) {
+                attribute.toXContent(builder, params);
+            }
+            builder.endObject();
+        } else if (onOrAfterCodecVersion(CODEC_V1)) {
+            builder.field(CODEC_VERSION_FIELD.getPreferredName(), getCodecVersion());
+            builder.field(GLOBAL_METADATA_FIELD.getPreferredName(), getGlobalMetadataFileName());
+        }
+        if (onOrAfterCodecVersion(CODEC_V3)) {
             if (getDiscoveryNodesMetadata() != null) {
                 builder.startObject(UPLOADED_DISCOVERY_NODES_METADATA.getPreferredName());
                 getDiscoveryNodesMetadata().toXContent(builder, params);
@@ -600,16 +588,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                 getDiffManifest().toXContent(builder, params);
                 builder.endObject();
             }
-            builder.startObject(UPLOADED_CUSTOM_METADATA.getPreferredName());
-            for (UploadedMetadataAttribute attribute : getCustomMetadataMap().values()) {
-                attribute.toXContent(builder, params);
-            }
-            builder.endObject();
-        } else if (onOrAfterCodecVersion(CODEC_V1)) {
-            builder.field(CODEC_VERSION_FIELD.getPreferredName(), getCodecVersion());
-            builder.field(GLOBAL_METADATA_FIELD.getPreferredName(), getGlobalMetadataFileName());
-        }
-        if (onOrAfterCodecVersion(CODEC_V4)) {
+            builder.field(METADATA_VERSION.getPreferredName(), getMetadataVersion());
             builder.field(ROUTING_TABLE_VERSION_FIELD.getPreferredName(), getRoutingTableVersion());
             builder.startArray(INDICES_ROUTING_FIELD.getPreferredName());
             {
@@ -644,6 +623,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             out.writeMap(uploadedCustomMetadataMap, StreamOutput::writeString, (o, v) -> v.writeTo(o));
             out.writeLong(routingTableVersion);
             out.writeCollection(indicesRouting);
+            out.writeLong(metadataVersion);
         } else if (out.getVersion().onOrAfter(Version.V_2_12_0)) {
             out.writeInt(codecVersion);
             out.writeString(globalMetadataFileName);
@@ -724,6 +704,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
     public static class Builder {
 
         private String globalMetadataFileName;
+        private long metadataVersion;
         private UploadedMetadataAttribute discoveryNodesMetadata;
         private UploadedMetadataAttribute clusterBlocksMetadata;
         private UploadedMetadataAttribute coordinationMetadata;
@@ -752,6 +733,11 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
 
         public Builder routingTableVersion(long routingTableVersion) {
             this.routingTableVersion = routingTableVersion;
+            return this;
+        }
+
+        public Builder metadataVersion(long metadataVersion) {
+            this.metadataVersion = metadataVersion;
             return this;
         }
 
@@ -912,7 +898,8 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                 clusterBlocksMetadata,
                 diffManifest,
                 routingTableVersion,
-                indicesRouting
+                indicesRouting,
+                metadataVersion
             );
         }
 
