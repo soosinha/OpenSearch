@@ -125,7 +125,6 @@ public class RemoteGlobalMetadataManager {
         String component,
         String componentName,
         String uploadFilename,
-        ChecksumBlobStoreFormat componentBlobStore,
         LatchedActionListener<RemoteClusterStateUtils.RemoteReadResult> listener
     ) {
         AbstractRemoteBlobStoreObject remoteBlobStoreObject;
@@ -142,14 +141,6 @@ public class RemoteGlobalMetadataManager {
         }
         ActionListener actionListener = ActionListener.wrap(response -> listener.onResponse(new RemoteClusterStateUtils.RemoteReadResult((ToXContent) response, component, componentName)), listener::onFailure);
         return () -> remoteBlobStoreObject.readAsync(actionListener);
-//        String[] splitName = uploadFilename.split("/");
-//        return () -> componentBlobStore.readAsync(
-//            globalMetadataContainer(clusterName, clusterUUID),
-//            splitName[splitName.length - 1],
-//            blobStoreRepository.getNamedXContentRegistry(),
-//            threadPool.executor(ThreadPool.Names.GENERIC),
-//            ActionListener.wrap(response -> listener.onResponse(new RemoteClusterStateUtils.RemoteReadResult((ToXContent) response, component, componentName)), listener::onFailure)
-//        );
     }
 
     Metadata getGlobalMetadata(String clusterName, String clusterUUID, ClusterMetadataManifest clusterMetadataManifest) {

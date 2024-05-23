@@ -33,6 +33,7 @@ public class RemoteIndexMetadata extends AbstractRemoteBlobStoreObject<IndexMeta
         METADATA_NAME_PLAIN_FORMAT,
         IndexMetadata::fromXContent
     );
+    public static final String INDEX_PATH_TOKEN = "index";
 
     private IndexMetadata indexMetadata;
     private String blobName;
@@ -71,7 +72,7 @@ public class RemoteIndexMetadata extends AbstractRemoteBlobStoreObject<IndexMeta
 
     @Override
     public BlobPathParameters getBlobPathParameters() {
-        return new BlobPathParameters(List.of("index"), "metadata");
+        return new BlobPathParameters(List.of(INDEX_PATH_TOKEN), "metadata");
     }
 
     @Override

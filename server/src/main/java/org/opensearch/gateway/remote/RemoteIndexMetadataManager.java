@@ -8,8 +8,8 @@
 
 package org.opensearch.gateway.remote;
 
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.METADATA_NAME_FORMAT;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.RemoteStateTransferException;
+import static org.opensearch.gateway.remote.RemoteIndexMetadata.INDEX_PATH_TOKEN;
 
 import java.io.IOException;
 import java.util.Locale;
@@ -20,10 +20,8 @@ import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.Setting;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.core.action.ActionListener;
-import org.opensearch.core.xcontent.NamedXContentRegistry;
 import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
-import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
 import org.opensearch.threadpool.ThreadPool;
 
 public class RemoteIndexMetadataManager {
@@ -36,13 +34,6 @@ public class RemoteIndexMetadataManager {
         Setting.Property.Dynamic,
         Setting.Property.NodeScope
     );
-
-    public static final ChecksumBlobStoreFormat<IndexMetadata> INDEX_METADATA_FORMAT = new ChecksumBlobStoreFormat<>(
-        "index-metadata",
-        METADATA_NAME_FORMAT,
-        IndexMetadata::fromXContent
-    );
-    public static final String INDEX_PATH_TOKEN = "index";
 
     private final BlobStoreRepository blobStoreRepository;
     private final ThreadPool threadPool;
@@ -87,20 +78,9 @@ public class RemoteIndexMetadataManager {
     ) {
         RemoteIndexMetadata remoteIndexMetadata = new RemoteIndexMetadata(uploadedFilename, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
         ActionListener<IndexMetadata> actionListener = ActionListener.wrap(
-            //todo change dummy
-            response -> latchedActionListener.onResponse(new RemoteClusterStateUtils.RemoteReadResult(response, INDEX_PATH_TOKEN, "dummy")),
+            response -> latchedActionListener.onResponse(new RemoteClusterStateUtils.RemoteReadResult(response, INDEX_PATH_TOKEN, response.getIndexName())),
             latchedActionListener::onFailure);
         return () -> remoteIndexMetadata.readAsync(actionListener);
-//        String[] splitPath = uploadedFilename.split("/");
-//        return () -> INDEX_METADATA_FORMAT.readAsync(
-//            indexMetadataContainer(clusterName, clusterUUID, splitPath[0]),
-//            splitPath[splitPath.length - 1],
-//            blobStoreRepository.getNamedXContentRegistry(),
-//            threadPool.executor(ThreadPool.Names.GENERIC),
-//            ActionListener.wrap(
-//                response -> latchedActionListener.onResponse(new RemoteClusterStateUtils.RemoteReadResult(response, INDEX_PATH_TOKEN, "dummy")),
-//                latchedActionListener::onFailure)
-//        );
     }
 
     /**

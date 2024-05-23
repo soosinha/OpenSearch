@@ -37,7 +37,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.GLOBAL_METADATA_FORMAT;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.GLOBAL_METADATA_PATH_TOKEN;
 import static org.opensearch.gateway.remote.RemoteIndexMetadata.INDEX_METADATA_FORMAT;
-import static org.opensearch.gateway.remote.RemoteIndexMetadataManager.INDEX_PATH_TOKEN;
+import static org.opensearch.gateway.remote.RemoteIndexMetadata.INDEX_PATH_TOKEN;
 import static org.opensearch.gateway.remote.RemoteManifestManager.MANIFEST_FILE_PREFIX;
 import static org.opensearch.gateway.remote.RemoteManifestManager.MANIFEST_PATH_TOKEN;
 
