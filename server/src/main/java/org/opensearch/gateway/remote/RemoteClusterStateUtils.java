@@ -80,6 +80,7 @@ public class RemoteClusterStateUtils {
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedTemplatesMetadata;
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedDiscoveryNodes;
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedClusterBlocks;
+        List<ClusterMetadataManifest.UploadedIndexMetadata> uploadedIndicesRoutingMetadata;
 
         public UploadedMetadataResults(
             List<ClusterMetadataManifest.UploadedIndexMetadata> uploadedIndexMetadata,
@@ -88,7 +89,8 @@ public class RemoteClusterStateUtils {
             ClusterMetadataManifest.UploadedMetadataAttribute uploadedSettingsMetadata,
             ClusterMetadataManifest.UploadedMetadataAttribute uploadedTemplatesMetadata,
             ClusterMetadataManifest.UploadedMetadataAttribute uploadedDiscoveryNodes,
-            ClusterMetadataManifest.UploadedMetadataAttribute uploadedClusterBlocks
+            ClusterMetadataManifest.UploadedMetadataAttribute uploadedClusterBlocks,
+            List<ClusterMetadataManifest.UploadedIndexMetadata> uploadedIndicesRoutingMetadata
         ) {
             this.uploadedIndexMetadata = uploadedIndexMetadata;
             this.uploadedCustomMetadataMap = uploadedCustomMetadataMap;
@@ -97,6 +99,7 @@ public class RemoteClusterStateUtils {
             this.uploadedTemplatesMetadata = uploadedTemplatesMetadata;
             this.uploadedDiscoveryNodes = uploadedDiscoveryNodes;
             this.uploadedClusterBlocks = uploadedClusterBlocks;
+            this.uploadedIndicesRoutingMetadata = uploadedIndicesRoutingMetadata;
         }
 
         public UploadedMetadataResults() {
@@ -107,6 +110,7 @@ public class RemoteClusterStateUtils {
             this.uploadedTemplatesMetadata = null;
             this.uploadedDiscoveryNodes = null;
             this.uploadedClusterBlocks = null;
+            this.uploadedIndicesRoutingMetadata = new ArrayList<>();
         }
     }
 
