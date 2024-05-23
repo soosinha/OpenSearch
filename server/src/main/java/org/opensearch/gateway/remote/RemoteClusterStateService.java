@@ -843,7 +843,7 @@ public class RemoteClusterStateService implements Closeable {
         LatchedActionListener<RemoteReadResult> listener = new LatchedActionListener<>(
             ActionListener.wrap(
                 response -> {
-                    logger.info("Successfully read cluster state component from remote");
+                    logger.debug("Successfully read cluster state component from remote");
                     readResults.add(response);
                 },
                 ex -> {
@@ -867,7 +867,7 @@ public class RemoteClusterStateService implements Closeable {
         LatchedActionListener<RemoteRoutingTableService.RemoteIndexRoutingResult> routingTableLatchedActionListener = new LatchedActionListener<>(
             ActionListener.wrap(
                 response -> {
-                    logger.info("Successfully read cluster state component from remote");
+                    logger.debug("Successfully read cluster state component from remote");
                     readIndexRoutingTableResults.add(response);
                 },
                 ex -> {

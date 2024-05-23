@@ -249,12 +249,13 @@ public class PublicationTransportHandler {
 
         if (applyFullState == true) {
             ClusterState clusterState = remoteClusterStateService.getClusterStateForManifest(request.getClusterName(), manifest, transportService.getLocalNode().getId());
-            logger.debug("Downloaded full cluster state version [{}]", clusterState.version());
+            logger.debug("Downloaded full cluster state [{}]", clusterState);
             final PublishWithJoinResponse response = acceptState(clusterState);
             lastSeenClusterState.set(clusterState);
             return response;
         } else {
             ClusterState clusterState = remoteClusterStateService.getClusterStateUsingDiff(request.getClusterName(), manifest, lastSeenClusterState.get(), transportService.getLocalNode().getId());
+            logger.debug("Downloaded full cluster state from diff [{}]", clusterState);
             final PublishWithJoinResponse response = acceptState(clusterState);
             lastSeenClusterState.compareAndSet(lastSeen, clusterState);
             return response;

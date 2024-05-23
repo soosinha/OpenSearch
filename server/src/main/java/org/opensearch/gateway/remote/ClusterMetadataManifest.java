@@ -975,7 +975,6 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         }
 
         public UploadedIndexMetadata(String indexName, String indexUUID, String uploadedFileName, String componentPrefix) {
-            logger.info("creating UploadedIndexMetadata {}", componentPrefix);
             this.componentPrefix = componentPrefix;
             this.indexName = indexName;
             this.indexUUID = indexUUID;
