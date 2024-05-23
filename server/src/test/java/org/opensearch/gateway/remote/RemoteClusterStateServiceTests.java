@@ -303,7 +303,7 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
             .provideStream(0)
             .getInputStream()
             .readAllBytes();
-        IndexMetadata writtenIndexMetadata = RemoteIndexMetadataManager.INDEX_METADATA_FORMAT.deserialize(
+        IndexMetadata writtenIndexMetadata = RemoteIndexMetadata.INDEX_METADATA_FORMAT.deserialize(
             capturedWriteContext.get("metadata").getFileName(),
             blobStoreRepository.getNamedXContentRegistry(),
             new BytesArray(writtenBytes)
@@ -1569,7 +1569,7 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
                 }
                 String fileName = uploadedIndexMetadata.getUploadedFilename();
                 when(blobContainer.readBlob(fileName + ".dat")).thenAnswer((invocationOnMock) -> {
-                    BytesReference bytesIndexMetadata = RemoteIndexMetadataManager.INDEX_METADATA_FORMAT.serialize(
+                    BytesReference bytesIndexMetadata = RemoteIndexMetadata.INDEX_METADATA_FORMAT.serialize(
                         indexMetadata,
                         fileName,
                         blobStoreRepository.getCompressor(),
