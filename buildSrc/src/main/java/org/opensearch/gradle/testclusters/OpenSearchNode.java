@@ -1158,22 +1158,15 @@ public class OpenSearchNode implements TestClusterConfiguration {
         if (nodeName != null) {
             baseConfig.put("node.name", nodeName);
         }
-        baseConfig.put("path.repo", "/Users/soosinha/os_data/repos");
+        baseConfig.put("path.repo", confPathRepo.toAbsolutePath().toString());
         baseConfig.put("path.data", confPathData.toAbsolutePath().toString());
         baseConfig.put("path.logs", confPathLogs.toAbsolutePath().toString());
-        baseConfig.put("cluster.remote_store.state.enabled", "true");
-
         baseConfig.put("path.shared_data", workingDir.resolve("sharedData").toString());
         baseConfig.put("node.attr.testattr", "test");
         if (StringUtils.isNotBlank(zone)) {
             baseConfig.put("cluster.routing.allocation.awareness.attributes", "zone");
             baseConfig.put("node.attr.zone", zone);
         }
-        baseConfig.put("node.attr.remote_store.state.repository", "my-fs-repository");
-        baseConfig.put("node.attr.remote_store.segment.repository", "my-fs-repository");
-        baseConfig.put("node.attr.remote_store.translog.repository", "my-fs-repository");
-        baseConfig.put("node.attr.remote_store.repository.my-fs-repository.type", "fs");
-        baseConfig.put("node.attr.remote_store.repository.my-fs-repository.settings.location", "/Users/soosinha/os_data/repos/gradlerepo");
         baseConfig.put("node.portsfile", "true");
         baseConfig.put("http.port", httpPort);
         baseConfig.put("transport.port", transportPort);
