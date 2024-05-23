@@ -138,7 +138,6 @@ public class RemoteStoreNodeAttribute {
 
         // Repository metadata built here will always be for a system repository.
         settings.put(BlobStoreRepository.SYSTEM_REPOSITORY_SETTING.getKey(), true);
-        settings.put("repositories.fs.location", "/Users/abandeji/Public/work-dump/remote/snap");
 
         return new RepositoryMetadata(name, type, settings.build(), cryptoMetadata);
     }
