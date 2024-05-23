@@ -89,7 +89,6 @@ import org.opensearch.threadpool.ThreadPool;
  */
 public class RemoteClusterStateService implements Closeable {
     public static final int RETAINED_MANIFESTS = 10;
-    public static final int SKIP_CLEANUP_STATE_CHANGES = 10;
 
     private static final Logger logger = LogManager.getLogger(RemoteClusterStateService.class);
 
@@ -1076,7 +1075,7 @@ public class RemoteClusterStateService implements Closeable {
 
         Map<String, UploadedMetadataAttribute> updatedCustomMetadata = new HashMap<>();
         if (diff.getCustomMetadataUpdated() != null) {
-            for (String customType : diff.getCustomMetadataUpdated().keySet()) {
+            for (String customType : diff.getCustomMetadataUpdated()) {
                 updatedCustomMetadata.put(customType, manifest.getCustomMetadataMap().get(customType));
             }
         }
@@ -1097,16 +1096,11 @@ public class RemoteClusterStateService implements Closeable {
         );
         ClusterState.Builder clusterStateBuilder = ClusterState.builder(updatedClusterState);
         Metadata.Builder metadataBuilder = Metadata.builder(updatedClusterState.metadata());
+        // remove the deleted indices from the metadata
         for (String index:diff.getIndicesDeleted()) {
             metadataBuilder.remove(index);
         }
-        if (diff.getCustomMetadataUpdated() != null) {
-            for (String customType : diff.getCustomMetadataUpdated().keySet()) {
-                Metadata.Custom custom = remoteGlobalMetadataManager.getCustomsMetadata(manifest.getClusterUUID(),
-                    manifest.getCustomMetadataMap().get(customType).getUploadedFilename(), customType);
-                metadataBuilder.putCustom(customType, custom);
-            }
-        }
+        // remove the deleted metadata customs from the metadata
         if (diff.getCustomMetadataDeleted() != null) {
             for (String customType : diff.getCustomMetadataDeleted()) {
                 metadataBuilder.removeCustom(customType);

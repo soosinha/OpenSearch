@@ -8,6 +8,7 @@
 
 package org.opensearch.gateway.remote;
 
+import org.apache.lucene.util.packed.DirectMonotonicReader;
 import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.cluster.metadata.Metadata;
@@ -35,19 +36,20 @@ public class ClusterStateDiffManifest implements ToXContentObject {
     private static final String METADATA_DIFF_FIELD = "metadata_diff";
     private static final String COORDINATION_METADATA_UPDATED_FIELD = "coordination_metadata_diff";
     private static final String SETTINGS_METADATA_UPDATED_FIELD = "settings_metadata_diff";
-    private static final String TEMPLATES_METADATA_UPDATED_FIELD = ("templates_metadata_diff");
-    private static final String INDICES_DIFF_FIELD = ("indices_diff");
-    private static final String UPSERTS_FIELD = ("upserts");
-    private static final String DELETES_FIELD = ("deletes");
-    private static final String CLUSTER_BLOCKS_UPDATED_FIELD = ("cluster_blocks_diff");
-    private static final String DISCOVERY_NODES_UPDATED_FIELD = ("discovery_nodes_diff");
-    private static final String ROUTING_TABLE_DIFF = ("routing_table_diff");
+    private static final String TEMPLATES_METADATA_UPDATED_FIELD = "templates_metadata_diff";
+    private static final String INDICES_DIFF_FIELD = "indices_diff";
+    private static final String METADATA_CUSTOM_DIFF_FIELD = "metadata_custom_diff";
+    private static final String UPSERTS_FIELD = "upserts";
+    private static final String DELETES_FIELD = "deletes";
+    private static final String CLUSTER_BLOCKS_UPDATED_FIELD = "cluster_blocks_diff";
+    private static final String DISCOVERY_NODES_UPDATED_FIELD = "discovery_nodes_diff";
+    private static final String ROUTING_TABLE_DIFF = "routing_table_diff";
     private final String fromStateUUID;
     private final String toStateUUID;
     private final boolean coordinationMetadataUpdated;
     private final boolean settingsMetadataUpdated;
     private final boolean templatesMetadataUpdated;
-    private final Map<String, Boolean> customMetadataUpdated;
+    private List<String> customMetadataUpdated;
     private final List<String> customMetadataDeleted;
     private final List<String> indicesUpdated;
     private final List<String> indicesDeleted;
@@ -66,12 +68,11 @@ public class ClusterStateDiffManifest implements ToXContentObject {
         indicesUpdated = findUpdatedIndices(state.metadata().indices(), previousState.metadata().indices());
         clusterBlocksUpdated = state.blocks().equals(previousState.blocks());
         discoveryNodesUpdated = state.nodes().delta(previousState.nodes()).hasChanges();
-        customMetadataUpdated = new HashMap<>();
+        customMetadataUpdated = new ArrayList<>();
         for (String custom : state.metadata().customs().keySet()) {
-            customMetadataUpdated.put(
-                custom,
-                state.metadata().customs().get(custom).equals(previousState.metadata().customs().get(custom))
-            );
+            if (!state.metadata().customs().get(custom).equals(previousState.metadata().customs().get(custom))) {
+                customMetadataUpdated.add(custom);
+            }
         }
         customMetadataDeleted = new ArrayList<>();
         for (String custom : previousState.metadata().customs().keySet()) {
@@ -88,7 +89,8 @@ public class ClusterStateDiffManifest implements ToXContentObject {
                                     boolean coordinationMetadataUpdated,
                                     boolean settingsMetadataUpdated,
                                     boolean templatesMetadataUpdated,
-                                    Map<String, Boolean> customMetadataUpdated, List<String> customMetadataDeleted,
+                                    List<String> customMetadataUpdated,
+                                    List<String> customMetadataDeleted,
                                     List<String> indicesUpdated,
                                     List<String> indicesDeleted,
                                     boolean clusterBlocksUpdated,
@@ -132,10 +134,18 @@ public class ClusterStateDiffManifest implements ToXContentObject {
                 }
                 builder.endArray();
                 builder.endObject();
-                // ToDo: add the custom metadata diff when we add a parser for this
-//                    for (Map.Entry<String, Boolean> entry : customMetadataUpdated.entrySet()) {
-//                        if (entry.getValue()) builder.field("customs_" + entry.getKey(), true);
-//                    }
+                builder.startObject(METADATA_CUSTOM_DIFF_FIELD);
+                builder.startArray(UPSERTS_FIELD);
+                for (String custom : customMetadataUpdated) {
+                    builder.value(custom);
+                }
+                builder.endArray();
+                builder.startArray(DELETES_FIELD);
+                for (String custom : customMetadataDeleted) {
+                    builder.value(custom);
+                }
+                builder.endArray();
+                builder.endObject();
             }
             builder.endObject();
             builder.field(CLUSTER_BLOCKS_UPDATED_FIELD, clusterBlocksUpdated);
@@ -201,6 +211,21 @@ public class ClusterStateDiffManifest implements ToXContentObject {
                                             break;
                                         case DELETES_FIELD:
                                             builder.indicesDeleted(parseStringList(parser));
+                                            break;
+                                        default:
+                                            throw new XContentParseException("Unexpected field [" + currentFieldName + "]");
+                                    }
+                                }
+                            } else if (currentFieldName.equals(METADATA_CUSTOM_DIFF_FIELD)) {
+                                while ((token = parser.nextToken()) != XContentParser.Token.END_OBJECT) {
+                                    currentFieldName = parser.currentName();
+                                    token = parser.nextToken();
+                                    switch (currentFieldName) {
+                                        case UPSERTS_FIELD:
+                                            builder.customMetadataUpdated(parseStringList(parser));
+                                            break;
+                                        case DELETES_FIELD:
+                                            builder.customMetadataDeleted(parseStringList(parser));
                                             break;
                                         default:
                                             throw new XContentParseException("Unexpected field [" + currentFieldName + "]");
@@ -331,7 +356,7 @@ public class ClusterStateDiffManifest implements ToXContentObject {
         return templatesMetadataUpdated;
     }
 
-    public Map<String, Boolean> getCustomMetadataUpdated() {
+    public List<String> getCustomMetadataUpdated() {
         return customMetadataUpdated;
     }
 
@@ -373,7 +398,7 @@ public class ClusterStateDiffManifest implements ToXContentObject {
         private boolean coordinationMetadataUpdated;
         private boolean settingsMetadataUpdated;
         private boolean templatesMetadataUpdated;
-        private Map<String, Boolean> customMetadataUpdated;
+        private List<String> customMetadataUpdated;
         private List<String> customMetadataDeleted;
         private List<String> indicesUpdated;
         private List<String> indicesDeleted;
@@ -408,7 +433,7 @@ public class ClusterStateDiffManifest implements ToXContentObject {
             return this;
         }
 
-        public Builder customMetadataUpdated(Map<String, Boolean> customMetadataUpdated) {
+        public Builder customMetadataUpdated(List<String> customMetadataUpdated) {
             this.customMetadataUpdated = customMetadataUpdated;
             return this;
         }
