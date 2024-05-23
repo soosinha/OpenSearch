@@ -13,7 +13,7 @@ import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.
 import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.CLUSTER_STATE_ATTRIBUTE;
 import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.DISCOVERY_NODES;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.RemoteReadResult;
+
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.UploadedMetadataResults;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.clusterUUIDContainer;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.COORDINATION_METADATA;
@@ -33,7 +33,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -58,10 +57,7 @@ import org.opensearch.cluster.node.DiscoveryNodes;
 import org.opensearch.cluster.routing.IndexRoutingTable;
 import org.opensearch.cluster.routing.remote.RemoteRoutingTableService;
 import org.opensearch.cluster.node.DiscoveryNode;
-import org.opensearch.cluster.node.DiscoveryNodes;
-import org.opensearch.cluster.routing.IndexRoutingTable;
 import org.opensearch.cluster.routing.RoutingTable;
-import org.opensearch.cluster.routing.remote.RemoteRoutingTableService;
 import org.opensearch.cluster.service.ClusterService;
 import org.opensearch.common.CheckedRunnable;
 import org.opensearch.common.Nullable;
@@ -842,10 +838,9 @@ public class RemoteClusterStateService implements Closeable {
         List<CheckedRunnable<IOException>> asyncMetadataReadActions = new ArrayList<>();
         List<RemoteReadResult> readResults = new ArrayList<>();
         List<RemoteRoutingTableService.RemoteIndexRoutingResult> readIndexRoutingTableResults = new ArrayList<>();
-        List<Exception> indexRoutingExceptionList = Collections.synchronizedList(new ArrayList<>(indicesRoutingToRead.size()));
         List<Exception> exceptionList = Collections.synchronizedList(new ArrayList<>(totalReadTasks));
 
-        LatchedActionListener<RemoteClusterStateUtils.RemoteReadResult> listener = new LatchedActionListener<>(
+        LatchedActionListener<RemoteReadResult> listener = new LatchedActionListener<>(
             ActionListener.wrap(
                 response -> {
                     logger.info("Successfully read cluster state component from remote");
@@ -877,7 +872,7 @@ public class RemoteClusterStateService implements Closeable {
                 },
                 ex -> {
                     logger.error("Failed to read cluster state from remote", ex);
-                    indexRoutingExceptionList.add(ex);
+                    exceptionList.add(ex);
                 }
             ),
             latch
@@ -886,8 +881,6 @@ public class RemoteClusterStateService implements Closeable {
         for (UploadedIndexMetadata indexRouting: indicesRoutingToRead) {
             asyncMetadataReadActions.add(
                 remoteRoutingTableService.getAsyncIndexMetadataReadAction(
-                    clusterName,
-                    clusterUUID,
                     indexRouting.getUploadedFilename(),
                     new Index(indexRouting.getIndexName(), indexRouting.getIndexUUID()),
                     routingTableLatchedActionListener
@@ -994,18 +987,13 @@ public class RemoteClusterStateService implements Closeable {
             throw exception;
         }
 
-        if (!indexRoutingExceptionList.isEmpty()) {
-            RemoteStateTransferException exception = new RemoteStateTransferException("Exception during reading routing table from remote");
-            exceptionList.forEach(exception::addSuppressed);
-            throw exception;
-        }
         ClusterState.Builder clusterStateBuilder = ClusterState.builder(previousState);
         AtomicReference<DiscoveryNodes.Builder> discoveryNodesBuilder = new AtomicReference<>(DiscoveryNodes.builder());
         Metadata.Builder metadataBuilder = Metadata.builder(previousState.metadata());
         metadataBuilder.clusterUUID(manifest.getClusterUUID());
         metadataBuilder.clusterUUIDCommitted(manifest.isClusterUUIDCommitted());
         Map<String, IndexMetadata> indexMetadataMap = new HashMap<>();
-        Map<String, IndexRoutingTable> indicesRouting = new HashMap<>();
+        Map<String, IndexRoutingTable> indicesRouting = new HashMap<>(previousState.routingTable().getIndicesRouting());
 
         readResults.forEach(remoteReadResult -> {
             switch (remoteReadResult.getComponent()) {

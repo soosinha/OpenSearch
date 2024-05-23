@@ -8,29 +8,19 @@
 
 package org.opensearch.gateway.remote;
 
-import java.util.Locale;
 import org.opensearch.action.LatchedActionListener;
 import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.block.ClusterBlocks;
-import org.opensearch.cluster.metadata.TemplatesMetadata;
 import org.opensearch.cluster.node.DiscoveryNodes;
 import org.opensearch.common.CheckedRunnable;
-import org.opensearch.common.blobstore.BlobContainer;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.core.xcontent.ToXContent;
 import org.opensearch.gateway.remote.RemoteClusterStateUtils.RemoteStateTransferException;
-import org.opensearch.index.remote.RemoteStoreUtils;
 import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
-import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
 import org.opensearch.threadpool.ThreadPool;
 
 import java.io.IOException;
-
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.FORMAT_PARAMS;
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.METADATA_NAME_FORMAT;
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.getCusterMetadataBasePath;
 
 public class RemoteClusterStateAttributesManager {
     public static final String CLUSTER_STATE_ATTRIBUTE = "cluster_state_attribute";
@@ -83,10 +73,10 @@ public class RemoteClusterStateAttributesManager {
         String clusterUUID,
         String component,
         String uploadedFilename,
-        LatchedActionListener<RemoteClusterStateUtils.RemoteReadResult> listener
+        LatchedActionListener<RemoteReadResult> listener
     ) {
         AbstractRemoteBlobStoreObject remoteObject = getRemoteObject(component, uploadedFilename, clusterUUID);
-        ActionListener actionListener = ActionListener.wrap(response -> listener.onResponse(new RemoteClusterStateUtils.RemoteReadResult((ToXContent) response, CLUSTER_STATE_ATTRIBUTE, component)), listener::onFailure);
+        ActionListener actionListener = ActionListener.wrap(response -> listener.onResponse(new RemoteReadResult((ToXContent) response, CLUSTER_STATE_ATTRIBUTE, component)), listener::onFailure);
         return () -> remoteObject.readAsync(actionListener);
     }
 

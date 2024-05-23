@@ -125,7 +125,7 @@ public class RemoteGlobalMetadataManager {
         String component,
         String componentName,
         String uploadFilename,
-        LatchedActionListener<RemoteClusterStateUtils.RemoteReadResult> listener
+        LatchedActionListener<RemoteReadResult> listener
     ) {
         AbstractRemoteBlobStoreObject remoteBlobStoreObject;
         if (component.equals(COORDINATION_METADATA)) {
@@ -139,7 +139,7 @@ public class RemoteGlobalMetadataManager {
         } else {
             throw new RemoteStateTransferException("Unknown component " + componentName);
         }
-        ActionListener actionListener = ActionListener.wrap(response -> listener.onResponse(new RemoteClusterStateUtils.RemoteReadResult((ToXContent) response, component, componentName)), listener::onFailure);
+        ActionListener actionListener = ActionListener.wrap(response -> listener.onResponse(new RemoteReadResult((ToXContent) response, component, componentName)), listener::onFailure);
         return () -> remoteBlobStoreObject.readAsync(actionListener);
     }
 

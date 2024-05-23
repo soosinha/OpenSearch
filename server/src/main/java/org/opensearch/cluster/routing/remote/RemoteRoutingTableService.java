@@ -14,7 +14,6 @@ import org.apache.lucene.store.IndexInput;
 import org.opensearch.action.LatchedActionListener;
 import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.routing.IndexRoutingTable;
-import org.opensearch.cluster.routing.RoutingTable;
 import org.opensearch.common.CheckedRunnable;
 import org.opensearch.common.blobstore.AsyncMultiStreamBlobContainer;
 import org.opensearch.common.blobstore.BlobContainer;
@@ -29,8 +28,10 @@ import org.opensearch.common.settings.Settings;
 import org.opensearch.common.util.io.IOUtils;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.core.index.Index;
+import org.opensearch.core.xcontent.ToXContent;
 import org.opensearch.gateway.remote.ClusterMetadataManifest;
 import org.opensearch.gateway.remote.RemoteClusterStateUtils;
+import org.opensearch.gateway.remote.RemoteReadResult;
 import org.opensearch.gateway.remote.routingtable.IndexRoutingTableInputStream;
 import org.opensearch.gateway.remote.routingtable.IndexRoutingTableInputStreamReader;
 import org.opensearch.index.remote.RemoteStoreEnums;
@@ -48,7 +49,6 @@ import java.io.IOException;
 
 import java.io.InputStream;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -78,6 +78,7 @@ public class RemoteRoutingTableService implements Closeable {
         Setting.Property.Final
     );
     public static final String INDEX_ROUTING_PATH_TOKEN = "index-routing";
+    public static final String ROUTING_TABLE = "routing-table";
     public static final String INDEX_ROUTING_FILE_PREFIX = "index_routing";
     public static final String DELIMITER = "__";
     public static final String INDEX_ROUTING_METADATA_PREFIX = "indexRouting--";
@@ -229,63 +230,7 @@ public class RemoteRoutingTableService implements Closeable {
 
     }
 
-
-    public RoutingTable getIncrementalRoutingTable(ClusterState previousClusterState, ClusterMetadataManifest manifest){
-        List<String> indicesRoutingDeleted = manifest.getDiffManifest().getIndicesRoutingDeleted();
-        List<String> indicesRoutingUpdated = manifest.getDiffManifest().getIndicesRoutingUpdated();
-
-        List<ClusterMetadataManifest.UploadedIndexMetadata> indicesRoutingUpdatedMetadata = manifest.getIndicesRouting().stream()
-            .filter(indexRouting -> indicesRoutingUpdated.contains(indexRouting.getIndexName()))
-            .collect(Collectors.toList());
-
-        Map<String, IndexRoutingTable> indicesRouting = new HashMap<>(previousClusterState.getRoutingTable().indicesRouting());
-        indicesRoutingDeleted.forEach(indicesRouting::remove);
-
-        for(ClusterMetadataManifest.UploadedIndexMetadata indexRoutingMetaData: indicesRoutingUpdatedMetadata) {
-            logger.debug("Starting the read for first indexRoutingMetaData: {}", indexRoutingMetaData);
-            String filePath = indexRoutingMetaData.getUploadedFilePath();
-            BlobContainer container = blobStoreRepository.blobStore().blobContainer(blobStoreRepository.basePath());
-            try {
-                InputStream inputStream = container.readBlob(filePath);
-                IndexRoutingTableInputStreamReader indexRoutingTableInputStreamReader = new IndexRoutingTableInputStreamReader(inputStream);
-                Index index = new Index(indexRoutingMetaData.getIndexName(), indexRoutingMetaData.getIndexUUID());
-                IndexRoutingTable indexRouting = indexRoutingTableInputStreamReader.readIndexRoutingTable(index);
-                indicesRouting.put(indexRoutingMetaData.getIndexName(), indexRouting);
-                logger.debug("IndexRouting {}", indexRouting);
-            } catch (IOException e) {
-                logger.info("RoutingTable read failed with error: {}", e.toString());
-            }
-
-        }
-        return new RoutingTable(manifest.getRoutingTableVersion(), indicesRouting);
-    }
-
-    public RoutingTable getFullRoutingTable(long routingTableVersion, List<ClusterMetadataManifest.UploadedIndexMetadata> indicesRoutingMetaData) {
-        Map<String, IndexRoutingTable> indicesRouting = new HashMap<>();
-
-        for(ClusterMetadataManifest.UploadedIndexMetadata indexRoutingMetaData: indicesRoutingMetaData) {
-            logger.debug("Starting the read for first indexRoutingMetaData: {}", indexRoutingMetaData);
-            String filePath = indexRoutingMetaData.getUploadedFilePath();
-            BlobContainer container = blobStoreRepository.blobStore().blobContainer(blobStoreRepository.basePath().add(filePath));
-
-            try {
-                InputStream inputStream = container.readBlob(indexRoutingMetaData.getIndexName());
-                IndexRoutingTableInputStreamReader indexRoutingTableInputStreamReader = new IndexRoutingTableInputStreamReader(inputStream);
-                Index index = new Index(indexRoutingMetaData.getIndexName(), indexRoutingMetaData.getIndexUUID());
-                IndexRoutingTable indexRouting = indexRoutingTableInputStreamReader.readIndexRoutingTable(index);
-                indicesRouting.put(indexRoutingMetaData.getIndexName(), indexRouting);
-                logger.debug("IndexRouting {}", indexRouting);
-            } catch (IOException e) {
-                logger.info("RoutingTable read failed with error: {}", e.toString());
-            }
-
-        }
-        return new RoutingTable(routingTableVersion, indicesRouting);
-    }
-
     public CheckedRunnable<IOException> getAsyncIndexMetadataReadAction(
-        String clusterName,
-        String clusterUUID,
         String uploadedFilename,
         Index index,
         LatchedActionListener<RemoteIndexRoutingResult> latchedActionListener) {

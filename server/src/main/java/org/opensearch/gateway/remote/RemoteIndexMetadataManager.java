@@ -74,11 +74,11 @@ public class RemoteIndexMetadataManager {
     CheckedRunnable<IOException> getAsyncIndexMetadataReadAction(
         String clusterUUID,
         String uploadedFilename,
-        LatchedActionListener<RemoteClusterStateUtils.RemoteReadResult> latchedActionListener
+        LatchedActionListener<RemoteReadResult> latchedActionListener
     ) {
         RemoteIndexMetadata remoteIndexMetadata = new RemoteIndexMetadata(uploadedFilename, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
         ActionListener<IndexMetadata> actionListener = ActionListener.wrap(
-            response -> latchedActionListener.onResponse(new RemoteClusterStateUtils.RemoteReadResult(response, INDEX_PATH_TOKEN, response.getIndexName())),
+            response -> latchedActionListener.onResponse(new RemoteReadResult(response, INDEX_PATH_TOKEN, response.getIndexName())),
             latchedActionListener::onFailure);
         return () -> remoteIndexMetadata.readAsync(actionListener);
     }
