@@ -990,6 +990,7 @@ public class RemoteClusterStateService implements Closeable {
         ClusterState.Builder clusterStateBuilder = ClusterState.builder(previousState);
         AtomicReference<DiscoveryNodes.Builder> discoveryNodesBuilder = new AtomicReference<>(DiscoveryNodes.builder());
         Metadata.Builder metadataBuilder = Metadata.builder(previousState.metadata());
+        metadataBuilder.version(manifest.getMetadataVersion());
         metadataBuilder.clusterUUID(manifest.getClusterUUID());
         metadataBuilder.clusterUUIDCommitted(manifest.isClusterUUIDCommitted());
         Map<String, IndexMetadata> indexMetadataMap = new HashMap<>();
@@ -1041,9 +1042,8 @@ public class RemoteClusterStateService implements Closeable {
     }
 
     public ClusterState getClusterStateForManifest(String clusterName, ClusterMetadataManifest manifest, String localNodeId) throws IOException {
-        // todo make this async
         return readClusterStateInParallel(
-            ClusterState.EMPTY_STATE,
+            ClusterState.builder(new ClusterName(clusterName)).build(),
             manifest,
             clusterName,
             manifest.getClusterUUID(),
