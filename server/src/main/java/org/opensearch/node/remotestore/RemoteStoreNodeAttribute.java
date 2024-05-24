@@ -198,7 +198,7 @@ public class RemoteStoreNodeAttribute {
     }
 
     public static boolean isRemoteRoutingTableAttributePresent(Settings settings) {
-        return settings.getByPrefix(Node.NODE_ATTRIBUTES.getKey() + REMOTE_STORE_ROUTING_TABLE_REPOSITORY_NAME_ATTRIBUTE_KEY)
+        return settings.getByPrefix(Node.NODE_ATTRIBUTES.getKey() + REMOTE_STORE_CLUSTER_STATE_REPOSITORY_NAME_ATTRIBUTE_KEY)
             .isEmpty() == false;
     }
 

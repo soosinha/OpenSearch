@@ -100,7 +100,7 @@ public class FeatureFlags {
 
     public static final Setting<Boolean> REMOTE_ROUTING_TABLE_EXPERIMENTAL_SETTING = Setting.boolSetting(
         REMOTE_ROUTING_TABLE_EXPERIMENTAL,
-        false,
+        true,
         Property.NodeScope
     );
 

@@ -73,7 +73,7 @@ public class RemoteRoutingTableService implements Closeable {
      */
     public static final Setting<Boolean> REMOTE_ROUTING_TABLE_ENABLED_SETTING = Setting.boolSetting(
         "cluster.remote_store.routing.enabled",
-        false,
+        true,
         Setting.Property.NodeScope,
         Setting.Property.Final
     );
@@ -276,7 +276,7 @@ public class RemoteRoutingTableService implements Closeable {
     public void start() {
         assert isRemoteRoutingTableEnabled(settings) == true : "Remote routing table is not enabled";
         final String remoteStoreRepo = settings.get(
-            Node.NODE_ATTRIBUTES.getKey() + RemoteStoreNodeAttribute.REMOTE_STORE_ROUTING_TABLE_REPOSITORY_NAME_ATTRIBUTE_KEY
+            Node.NODE_ATTRIBUTES.getKey() + RemoteStoreNodeAttribute.REMOTE_STORE_CLUSTER_STATE_REPOSITORY_NAME_ATTRIBUTE_KEY
         );
         assert remoteStoreRepo != null : "Remote routing table repository is not configured";
         final Repository repository = repositoriesService.get().repository(remoteStoreRepo);
