@@ -28,6 +28,7 @@ import org.opensearch.cluster.routing.remote.RemoteRoutingTableService;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.sql.Blob;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -192,7 +193,6 @@ public class RemoteClusterStateCleanupManager implements Closeable {
                 if (clusterMetadataManifest.getCodecVersion() >= ClusterMetadataManifest.CODEC_V3) {
                     clusterMetadataManifest.getIndicesRouting()
                         .forEach(uploadedIndicesRouting -> filesToKeep.add(uploadedIndicesRouting.getUploadedFilename()));
-                    logger.info("[Active Manifest] Uploaded Indices Routing files to keep: {}", filesToKeep);
                 }
             });
             staleManifestBlobMetadata.forEach(blobMetadata -> {
@@ -215,12 +215,8 @@ public class RemoteClusterStateCleanupManager implements Closeable {
                 if (clusterMetadataManifest.getCodecVersion() >= ClusterMetadataManifest.CODEC_V3) {
                     clusterMetadataManifest.getIndicesRouting().forEach(uploadedIndicesRouting -> {
                         if (filesToKeep.contains(uploadedIndicesRouting.getUploadedFilename()) == false){
-                            staleIndexRoutingPaths.add(
-                                new BlobPath().add(RemoteRoutingTableService.INDEX_ROUTING_PATH_TOKEN).add(uploadedIndicesRouting.getIndexUUID()).buildAsString()
-                                    + uploadedIndicesRouting.getUploadedFilename()
-                            );
-                            logger.debug("Stale files path in stale manifest: {}", new BlobPath().add(RemoteRoutingTableService.INDEX_ROUTING_PATH_TOKEN).add(uploadedIndicesRouting.getIndexUUID()).buildAsString()
-                                + uploadedIndicesRouting.getUploadedFilename());
+                            staleIndexRoutingPaths.add(new BlobPath().buildAsString() + uploadedIndicesRouting.getUploadedFilename());
+                            logger.debug("Indices routing paths in stale manifest: {}", uploadedIndicesRouting.getUploadedFilename());
                         }
                     });
                 }
@@ -243,7 +239,7 @@ public class RemoteClusterStateCleanupManager implements Closeable {
             deleteStalePaths(clusterName, clusterUUID, new ArrayList<>(staleGlobalMetadataPaths));
             deleteStalePaths(clusterName, clusterUUID, new ArrayList<>(staleIndexMetadataPaths));
             deleteStalePaths(clusterName, clusterUUID, new ArrayList<>(staleManifestPaths));
-            deleteStalePaths(clusterName, clusterUUID, new ArrayList<>(staleIndexRoutingPaths));
+            deleteStaleIndexRoutingPaths(new ArrayList<>(staleIndexRoutingPaths));
         } catch (IllegalStateException e) {
             logger.error("Error while fetching Remote Cluster Metadata manifests", e);
         } catch (IOException e) {
@@ -344,6 +340,14 @@ public class RemoteClusterStateCleanupManager implements Closeable {
         logger.debug(String.format(Locale.ROOT, "Deleting stale files from remote - %s", stalePaths));
         getBlobStoreTransferService().deleteBlobs(
             RemoteClusterStateUtils.getCusterMetadataBasePath(remoteClusterStateService.getBlobStoreRepository(), clusterName, clusterUUID),
+            stalePaths
+        );
+    }
+
+    void deleteStaleIndexRoutingPaths(List<String> stalePaths) throws IOException {
+        logger.debug(String.format(Locale.ROOT, "Deleting stale index routing files from remote - %s", stalePaths));
+        getBlobStoreTransferService().deleteBlobs(
+            BlobPath.cleanPath(),
             stalePaths
         );
     }
