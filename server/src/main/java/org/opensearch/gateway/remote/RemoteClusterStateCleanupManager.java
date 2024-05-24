@@ -24,6 +24,7 @@ import org.opensearch.common.util.concurrent.AbstractAsyncTask;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.threadpool.ThreadPool;
+import org.opensearch.cluster.routing.remote.RemoteRoutingTableService;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -171,6 +172,7 @@ public class RemoteClusterStateCleanupManager implements Closeable {
             Set<String> staleManifestPaths = new HashSet<>();
             Set<String> staleIndexMetadataPaths = new HashSet<>();
             Set<String> staleGlobalMetadataPaths = new HashSet<>();
+            Set<String> staleIndexRoutingPaths = new HashSet<>();
             activeManifestBlobMetadata.forEach(blobMetadata -> {
                 ClusterMetadataManifest clusterMetadataManifest = remoteClusterStateService.getRemoteManifestManager().fetchRemoteClusterMetadataManifest(
                     clusterName,
@@ -186,6 +188,11 @@ public class RemoteClusterStateCleanupManager implements Closeable {
                     filesToKeep.add(clusterMetadataManifest.getSettingsMetadata().getUploadedFilename());
                     filesToKeep.add(clusterMetadataManifest.getTemplatesMetadata().getUploadedFilename());
                     clusterMetadataManifest.getCustomMetadataMap().values().forEach(attribute -> filesToKeep.add(attribute.getUploadedFilename()));
+                }
+                if (clusterMetadataManifest.getCodecVersion() >= ClusterMetadataManifest.CODEC_V3) {
+                    clusterMetadataManifest.getIndicesRouting()
+                        .forEach(uploadedIndicesRouting -> filesToKeep.add(uploadedIndicesRouting.getUploadedFilename()));
+                    logger.info("[Active Manifest] Uploaded Indices Routing files to keep: {}", filesToKeep);
                 }
             });
             staleManifestBlobMetadata.forEach(blobMetadata -> {
@@ -203,6 +210,18 @@ public class RemoteClusterStateCleanupManager implements Closeable {
                     addStaleGlobalMetadataPath(clusterMetadataManifest.getTemplatesMetadata().getUploadedFilename(), filesToKeep, staleGlobalMetadataPaths);
                     clusterMetadataManifest.getCustomMetadataMap().values().forEach(attribute -> {
                         addStaleGlobalMetadataPath(attribute.getUploadedFilename(), filesToKeep, staleGlobalMetadataPaths);
+                    });
+                }
+                if (clusterMetadataManifest.getCodecVersion() >= ClusterMetadataManifest.CODEC_V3) {
+                    clusterMetadataManifest.getIndicesRouting().forEach(uploadedIndicesRouting -> {
+                        if (filesToKeep.contains(uploadedIndicesRouting.getUploadedFilename()) == false){
+                            staleIndexRoutingPaths.add(
+                                new BlobPath().add(RemoteRoutingTableService.INDEX_ROUTING_PATH_TOKEN).add(uploadedIndicesRouting.getIndexUUID()).buildAsString()
+                                    + uploadedIndicesRouting.getUploadedFilename()
+                            );
+                            logger.debug("Stale files path in stale manifest: {}", new BlobPath().add(RemoteRoutingTableService.INDEX_ROUTING_PATH_TOKEN).add(uploadedIndicesRouting.getIndexUUID()).buildAsString()
+                                + uploadedIndicesRouting.getUploadedFilename());
+                        }
                     });
                 }
 
@@ -224,6 +243,7 @@ public class RemoteClusterStateCleanupManager implements Closeable {
             deleteStalePaths(clusterName, clusterUUID, new ArrayList<>(staleGlobalMetadataPaths));
             deleteStalePaths(clusterName, clusterUUID, new ArrayList<>(staleIndexMetadataPaths));
             deleteStalePaths(clusterName, clusterUUID, new ArrayList<>(staleManifestPaths));
+            deleteStalePaths(clusterName, clusterUUID, new ArrayList<>(staleIndexRoutingPaths));
         } catch (IllegalStateException e) {
             logger.error("Error while fetching Remote Cluster Metadata manifests", e);
         } catch (IOException e) {
