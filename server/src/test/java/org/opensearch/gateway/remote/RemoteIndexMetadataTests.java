@@ -10,7 +10,6 @@ package org.opensearch.gateway.remote;
 
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.lessThan;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.Mockito.mock;
@@ -27,7 +26,6 @@ import org.junit.Before;
 import org.opensearch.Version;
 import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.common.blobstore.BlobPath;
-import org.opensearch.common.blobstore.BlobStore;
 import org.opensearch.common.compress.DeflateCompressor;
 import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.Settings;
@@ -72,66 +70,75 @@ public class RemoteIndexMetadataTests extends OpenSearchTestCase {
 
     public void testGet() {
         IndexMetadata indexMetadata = getIndexMetadata();
-        RemoteIndexMetadata remoteObjectForUpload = new RemoteIndexMetadata(indexMetadata, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+        RemoteIndexMetadata remoteObjectForUpload = new RemoteIndexMetadata(indexMetadata, clusterUUID, blobStoreTransferService, blobStoreRepository,
+            clusterName, threadPool);
         assertThat(remoteObjectForUpload.get(), is(indexMetadata));
 
-        RemoteIndexMetadata remoteObjectForDownload = new RemoteIndexMetadata(TEST_BLOB_NAME, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+        RemoteIndexMetadata remoteObjectForDownload = new RemoteIndexMetadata(TEST_BLOB_NAME, clusterUUID, blobStoreTransferService, blobStoreRepository,
+            clusterName, threadPool);
         assertThat(remoteObjectForDownload.get(), nullValue());
     }
 
     public void testClusterUUID() {
         IndexMetadata indexMetadata = getIndexMetadata();
-        RemoteIndexMetadata remoteObjectForUpload = new RemoteIndexMetadata(indexMetadata, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+        RemoteIndexMetadata remoteObjectForUpload = new RemoteIndexMetadata(indexMetadata, clusterUUID, blobStoreTransferService, blobStoreRepository,
+            clusterName, threadPool);
         assertThat(remoteObjectForUpload.clusterUUID(), is(clusterUUID));
 
-        RemoteIndexMetadata remoteObjectForDownload = new RemoteIndexMetadata(TEST_BLOB_NAME, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+        RemoteIndexMetadata remoteObjectForDownload = new RemoteIndexMetadata(TEST_BLOB_NAME, clusterUUID, blobStoreTransferService, blobStoreRepository,
+            clusterName, threadPool);
         assertThat(remoteObjectForDownload.clusterUUID(), is(clusterUUID));
     }
 
     public void testFullBlobName() {
         IndexMetadata indexMetadata = getIndexMetadata();
-        RemoteIndexMetadata remoteObjectForUpload = new RemoteIndexMetadata(indexMetadata, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+        RemoteIndexMetadata remoteObjectForUpload = new RemoteIndexMetadata(indexMetadata, clusterUUID, blobStoreTransferService, blobStoreRepository,
+            clusterName, threadPool);
         assertThat(remoteObjectForUpload.getFullBlobName(), nullValue());
-        // todo test after uploading as well
 
-        RemoteIndexMetadata remoteObjectForDownload = new RemoteIndexMetadata(TEST_BLOB_NAME, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+        RemoteIndexMetadata remoteObjectForDownload = new RemoteIndexMetadata(TEST_BLOB_NAME, clusterUUID, blobStoreTransferService, blobStoreRepository,
+            clusterName, threadPool);
         assertThat(remoteObjectForDownload.getFullBlobName(), is(TEST_BLOB_NAME));
     }
 
     public void testBlobPathParameters() {
         IndexMetadata indexMetadata = getIndexMetadata();
-        RemoteIndexMetadata remoteObjectForUpload = new RemoteIndexMetadata(indexMetadata, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+        RemoteIndexMetadata remoteObjectForUpload = new RemoteIndexMetadata(indexMetadata, clusterUUID, blobStoreTransferService, blobStoreRepository,
+            clusterName, threadPool);
         BlobPathParameters params = remoteObjectForUpload.getBlobPathParameters();
         assertThat(params.getPathTokens(), is(List.of(INDEX_PATH_TOKEN)));
-        assertThat(params.getFilePrefix(),is("metadata"));
+        assertThat(params.getFilePrefix(), is("metadata"));
     }
 
     public void testGenerateBlobFileName() {
         IndexMetadata indexMetadata = getIndexMetadata();
-        RemoteIndexMetadata remoteObjectForUpload = new RemoteIndexMetadata(indexMetadata, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+        RemoteIndexMetadata remoteObjectForUpload = new RemoteIndexMetadata(indexMetadata, clusterUUID, blobStoreTransferService, blobStoreRepository,
+            clusterName, threadPool);
         String blobFileName = remoteObjectForUpload.generateBlobFileName();
         String[] nameTokens = blobFileName.split(RemoteClusterStateUtils.DELIMITER);
-        assertThat(nameTokens[0] ,is("metadata"));
-        assertThat(RemoteStoreUtils.invertLong(nameTokens[1]) , is(VERSION));
-        assertThat(RemoteStoreUtils.invertLong(nameTokens[2]) , lessThanOrEqualTo(System.currentTimeMillis()));
-        assertThat(nameTokens[3] , is(String.valueOf(INDEX_METADATA_CURRENT_CODEC_VERSION)));
+        assertThat(nameTokens[0], is("metadata"));
+        assertThat(RemoteStoreUtils.invertLong(nameTokens[1]), is(VERSION));
+        assertThat(RemoteStoreUtils.invertLong(nameTokens[2]), lessThanOrEqualTo(System.currentTimeMillis()));
+        assertThat(nameTokens[3], is(String.valueOf(INDEX_METADATA_CURRENT_CODEC_VERSION)));
     }
 
     public void testGetUploadedMetadata() throws IOException {
         IndexMetadata indexMetadata = getIndexMetadata();
-        RemoteIndexMetadata remoteObjectForUpload = new RemoteIndexMetadata(indexMetadata, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+        RemoteIndexMetadata remoteObjectForUpload = new RemoteIndexMetadata(indexMetadata, clusterUUID, blobStoreTransferService, blobStoreRepository,
+            clusterName, threadPool);
         assertThrows(AssertionError.class, remoteObjectForUpload::getUploadedMetadata);
 
         try (InputStream inputStream = remoteObjectForUpload.serialize()) {
             UploadedMetadata uploadedMetadata = remoteObjectForUpload.getUploadedMetadata();
-            assertThat(uploadedMetadata.getComponent() ,is(COMPONENT_PREFIX+"test-index"));
-            assertThat(uploadedMetadata.getUploadedFilename() ,is(remoteObjectForUpload.getFullBlobName()));
+            assertThat(uploadedMetadata.getComponent(), is(COMPONENT_PREFIX + "test-index"));
+            assertThat(uploadedMetadata.getUploadedFilename(), is(remoteObjectForUpload.getFullBlobName()));
         }
     }
 
     public void testSerDe() throws IOException {
         IndexMetadata indexMetadata = getIndexMetadata();
-        RemoteIndexMetadata remoteObjectForUpload = new RemoteIndexMetadata(indexMetadata, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+        RemoteIndexMetadata remoteObjectForUpload = new RemoteIndexMetadata(indexMetadata, clusterUUID, blobStoreTransferService, blobStoreRepository,
+            clusterName, threadPool);
         try (InputStream inputStream = remoteObjectForUpload.serialize()) {
             assertThat(inputStream.available(), greaterThan(0));
             IndexMetadata readIndexMetadata = remoteObjectForUpload.deserialize(inputStream);

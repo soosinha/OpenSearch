@@ -61,12 +61,12 @@ public class ClusterStateDiffManifest implements ToXContentObject {
     ClusterStateDiffManifest(ClusterState state, ClusterState previousState) {
         fromStateUUID = previousState.stateUUID();
         toStateUUID = state.stateUUID();
-        coordinationMetadataUpdated = Metadata.isCoordinationMetadataEqual(state.metadata(), previousState.metadata());
-        settingsMetadataUpdated = Metadata.isSettingsMetadataEqual(state.metadata(), previousState.metadata());
-        templatesMetadataUpdated = Metadata.isTemplatesMetadataEqual(state.metadata(), previousState.metadata());
+        coordinationMetadataUpdated = !Metadata.isCoordinationMetadataEqual(state.metadata(), previousState.metadata());
+        settingsMetadataUpdated = !Metadata.isSettingsMetadataEqual(state.metadata(), previousState.metadata());
+        templatesMetadataUpdated = !Metadata.isTemplatesMetadataEqual(state.metadata(), previousState.metadata());
         indicesDeleted = findRemovedIndices(state.metadata().indices(), previousState.metadata().indices());
         indicesUpdated = findUpdatedIndices(state.metadata().indices(), previousState.metadata().indices());
-        clusterBlocksUpdated = state.blocks().equals(previousState.blocks());
+        clusterBlocksUpdated = !state.blocks().equals(previousState.blocks());
         discoveryNodesUpdated = state.nodes().delta(previousState.nodes()).hasChanges();
         customMetadataUpdated = new ArrayList<>();
         for (String custom : state.metadata().customs().keySet()) {
