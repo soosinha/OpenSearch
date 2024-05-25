@@ -333,7 +333,7 @@ public class RemoteClusterStateService implements Closeable {
         ) == false;
         // ToDo: check if these needs to be updated or not
         final boolean updateDiscoveryNodes = clusterState.getNodes().delta(previousClusterState.getNodes()).hasChanges();
-        final boolean updateClusterBlocks = clusterState.blocks().equals(previousClusterState.blocks());
+        final boolean updateClusterBlocks = !clusterState.blocks().equals(previousClusterState.blocks());
 
         // Write Index Metadata
         final Map<String, IndexMetadata> previousStateIndexMetadataByName = new HashMap<>();
@@ -454,7 +454,7 @@ public class RemoteClusterStateService implements Closeable {
         boolean uploadDiscoveryNodes,
         boolean uploadClusterBlock,
         List<IndexRoutingTable> indicesRoutingToUpload) throws IOException {
-        int totalUploadTasks = indexToUpload.size() + customToUpload.size() + (uploadCoordinationMetadata ? 1 : 0) + (uploadSettingsMetadata
+        int totalUploadTasks = indexToUpload.size() + indexMetadataUploadListeners.size() + customToUpload.size() + (uploadCoordinationMetadata ? 1 : 0) + (uploadSettingsMetadata
             ? 1 : 0) + (uploadTemplateMetadata ? 1 : 0) + (uploadDiscoveryNodes  ? 1 : 0) + (uploadClusterBlock ? 1 : 0) + indicesRoutingToUpload.size();
         CountDownLatch latch = new CountDownLatch(totalUploadTasks);
         Map<String, CheckedRunnable<IOException>> uploadTasks = new ConcurrentHashMap<>(totalUploadTasks);
