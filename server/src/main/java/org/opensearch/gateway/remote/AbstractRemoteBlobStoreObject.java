@@ -92,7 +92,7 @@ public abstract class AbstractRemoteBlobStoreObject<T> implements RemoteObject<T
 
     public BlobPath getBlobPathForDownload() {
         String[] pathTokens = extractBlobPathTokens(getFullBlobName());
-        BlobPath blobPath = blobStoreRepository.basePath();
+        BlobPath blobPath = new BlobPath();
         for (String token : pathTokens) {
             blobPath = blobPath.add(token);
         }
