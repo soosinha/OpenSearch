@@ -34,6 +34,7 @@ package org.opensearch.cluster;
 
 import org.opensearch.Version;
 import org.opensearch.cluster.ClusterState.Custom;
+import org.opensearch.cluster.metadata.Metadata;
 import org.opensearch.common.UUIDs;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.core.common.io.stream.StreamInput;
@@ -41,7 +42,6 @@ import org.opensearch.core.common.io.stream.StreamOutput;
 import org.opensearch.core.common.io.stream.Writeable;
 import org.opensearch.core.xcontent.XContentBuilder;
 import org.opensearch.core.xcontent.XContentParser;
-import org.opensearch.core.xcontent.XContentParserUtils;
 import org.opensearch.repositories.RepositoryOperation;
 import org.opensearch.snapshots.SnapshotId;
 
@@ -77,7 +77,7 @@ public class SnapshotDeletionsInProgress extends AbstractNamedDiffable<Custom> i
         assert assertNoConcurrentDeletionsForSameRepository(entries);
     }
 
-    public static SnapshotDeletionsInProgress of(List<SnapshotDeletionsInProgress.Entry> entries) {
+    public static SnapshotDeletionsInProgress of(List<Entry> entries) {
         if (entries.isEmpty()) {
             return EMPTY;
         }
@@ -195,11 +195,21 @@ public class SnapshotDeletionsInProgress extends AbstractNamedDiffable<Custom> i
                 builder.field("repository", entry.repository());
                 builder.startArray("snapshots");
                 for (SnapshotId snapshot : entry.snapshots) {
-                    builder.value(snapshot.getName());
+                    if (params.param(Metadata.CONTEXT_MODE_PARAM, Metadata.CONTEXT_MODE_API).equals(Metadata.CONTEXT_MODE_GATEWAY)) {
+                        builder.startObject();
+                        builder.field("name", snapshot.getName());
+                        builder.field("uuid", snapshot.getUUID());
+                        builder.endObject();
+                    } else {
+                        builder.value(snapshot.getName());
+                    }
                 }
                 builder.endArray();
                 builder.humanReadableField("start_time_millis", "start_time", new TimeValue(entry.startTime));
                 builder.field("repository_state_id", entry.repositoryStateId);
+                if (params.param(Metadata.CONTEXT_MODE_PARAM, Metadata.CONTEXT_MODE_API).equals(Metadata.CONTEXT_MODE_GATEWAY)) {
+                    builder.field("state", entry.state().value);
+                } // else we don't serialize it
             }
             builder.endObject();
         }
@@ -208,18 +218,17 @@ public class SnapshotDeletionsInProgress extends AbstractNamedDiffable<Custom> i
     }
 
     public static SnapshotDeletionsInProgress fromXContent(XContentParser parser) throws IOException {
-        if (parser.currentToken() == null) {
-            parser.nextToken();
-        }
         ensureFieldName(parser, parser.currentToken(), TYPE);
         parser.nextToken();
         ensureExpectedToken(XContentParser.Token.START_ARRAY, parser.currentToken(), parser);
         List<Entry> entries = new ArrayList<>();
         while ((parser.nextToken()) != XContentParser.Token.END_ARRAY) {
             ensureExpectedToken(XContentParser.Token.START_OBJECT, parser.currentToken(), parser);
-            String repository, repositoryStateId;
-            List<String> snapshotNames = new ArrayList<>();
-            TimeValue startTime;
+            String repository = null;
+            long repositoryStateId = -1;
+            byte stateValue = -1;
+            List<SnapshotId> snapshotIds = new ArrayList<>();
+            TimeValue startTime = null;
             while ((parser.nextToken()) != XContentParser.Token.END_OBJECT) {
                 ensureExpectedToken(XContentParser.Token.FIELD_NAME, parser.currentToken(), parser);
                 final String fieldName = parser.currentName();
@@ -231,7 +240,22 @@ public class SnapshotDeletionsInProgress extends AbstractNamedDiffable<Custom> i
                     case "snapshots":
                         ensureExpectedToken(XContentParser.Token.START_ARRAY, parser.currentToken(), parser);
                         while ((parser.nextToken()) != XContentParser.Token.END_ARRAY) {
-                            snapshotNames.add(parser.text());
+                            String name = null;
+                            String uuid = null;
+                            ensureExpectedToken(XContentParser.Token.START_OBJECT, parser.currentToken(), parser);
+                            while ((parser.nextToken()) != XContentParser.Token.END_OBJECT) {
+                                ensureExpectedToken(XContentParser.Token.FIELD_NAME, parser.currentToken(), parser);
+                                final String currentFieldName = parser.currentName();
+                                parser.nextToken();
+                                if ("name".equals(currentFieldName)) {
+                                    name = parser.text();
+                                } else if ("uuid".equals(currentFieldName)) {
+                                    uuid = parser.text();
+                                } else {
+                                    throw new IllegalArgumentException("unknown field [" + currentFieldName + "]");
+                                }
+                            }
+                            snapshotIds.add(new SnapshotId(name, uuid));
                         }
                         break;
                     case "start_time_millis":
@@ -241,13 +265,17 @@ public class SnapshotDeletionsInProgress extends AbstractNamedDiffable<Custom> i
                         startTime = TimeValue.parseTimeValue(parser.text(), "start_time");
                         break;
                     case "repository_state_id":
-                        repositoryStateId = parser.text();
+                        repositoryStateId = parser.longValue();
+                        break;
+                    case "state":
+                        stateValue = (byte) parser.intValue();
                         break;
                     default:
                         throw new IllegalArgumentException("unknown field [" + fieldName + "]");
                 }
             }
-//            entries.add(new Entry())
+            assert startTime != null;
+            entries.add(new Entry(snapshotIds, repository, startTime.millis(), repositoryStateId, State.fromValue(stateValue)));
         }
         return SnapshotDeletionsInProgress.of(entries);
     }
@@ -430,6 +458,17 @@ public class SnapshotDeletionsInProgress extends AbstractNamedDiffable<Custom> i
 
         public static State readFrom(StreamInput in) throws IOException {
             final byte value = in.readByte();
+            switch (value) {
+                case 0:
+                    return WAITING;
+                case 1:
+                    return STARTED;
+                default:
+                    throw new IllegalArgumentException("No snapshot delete state for value [" + value + "]");
+            }
+        }
+
+        public static State fromValue(byte value) {
             switch (value) {
                 case 0:
                     return WAITING;
