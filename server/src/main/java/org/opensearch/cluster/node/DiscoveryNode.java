@@ -65,6 +65,7 @@ import java.util.stream.Stream;
 import static org.opensearch.cluster.metadata.Metadata.CONTEXT_MODE_API;
 import static org.opensearch.cluster.metadata.Metadata.CONTEXT_MODE_PARAM;
 import static org.opensearch.node.NodeRoleSettings.NODE_ROLES_SETTING;
+import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.REMOTE_STORE_CLUSTER_STATE_REPOSITORY_NAME_ATTRIBUTE_KEY;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.REMOTE_STORE_NODE_ATTRIBUTE_KEY_PREFIX;
 
 /**
@@ -480,6 +481,17 @@ public class DiscoveryNode implements Writeable, ToXContentFragment {
      */
     public boolean isRemoteStoreNode() {
         return this.getAttributes().keySet().stream().anyMatch(key -> key.startsWith(REMOTE_STORE_NODE_ATTRIBUTE_KEY_PREFIX));
+    }
+
+    /**
+     * Returns whether the node is a remote cluster state enabled node.
+     * @return true if the node contains remote cluster state node attribute, false otherwise
+     */
+    public boolean isRemoteStateNode() {
+        return this.getAttributes()
+            .keySet()
+            .stream()
+            .anyMatch(key -> (key.equals(REMOTE_STORE_CLUSTER_STATE_REPOSITORY_NAME_ATTRIBUTE_KEY)));
     }
 
     /**
