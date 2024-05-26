@@ -68,7 +68,7 @@ public class RemoteIndexMetadataManager {
             ),
             ex -> latchedActionListener.onFailure(new RemoteStateTransferException(indexMetadata.getIndex().toString(), ex))
         );
-        return remoteIndexMetadata.writeAsync(completionListener);
+        return () -> remoteIndexMetadata.writeAsync(completionListener);
     }
 
     CheckedRunnable<IOException> getAsyncIndexMetadataReadAction(

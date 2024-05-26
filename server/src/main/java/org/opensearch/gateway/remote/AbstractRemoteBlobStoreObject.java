@@ -56,12 +56,14 @@ public abstract class AbstractRemoteBlobStoreObject<T> implements RemoteObject<T
     public abstract UploadedMetadata getUploadedMetadata();
 
     @Override
-    public CheckedRunnable<IOException> writeAsync(ActionListener<Void> listener) {
-        return () -> {
-            assert get() != null;
+    public void writeAsync(ActionListener<Void> listener) {
+        assert get() != null;
+        try {
             InputStream inputStream = serialize();
             transferService.uploadBlob(inputStream, getBlobPathForUpload(), getBlobFileName(), WritePriority.URGENT, listener);
-        };
+        } catch (Exception e) {
+            listener.onFailure(e);
+        }
     }
 
     @Override

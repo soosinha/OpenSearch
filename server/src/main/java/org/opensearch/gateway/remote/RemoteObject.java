@@ -20,7 +20,7 @@ public interface RemoteObject <T> {
     public InputStream serialize() throws IOException;
     public T deserialize(InputStream inputStream) throws IOException;
 
-    public CheckedRunnable<IOException> writeAsync(ActionListener<Void> listener);
+    public void writeAsync(ActionListener<Void> listener);
     public T read() throws IOException;
     public void readAsync(ActionListener<T> listener);
 

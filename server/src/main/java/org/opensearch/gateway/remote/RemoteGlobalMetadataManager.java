@@ -116,7 +116,7 @@ public class RemoteGlobalMetadataManager {
             ),
             ex -> latchedActionListener.onFailure(new RemoteStateTransferException("Upload failed", ex))
         );
-        return remoteBlobStoreObject.writeAsync(completionListener);
+        return () -> remoteBlobStoreObject.writeAsync(completionListener);
     }
 
     CheckedRunnable<IOException> getAsyncMetadataReadAction(

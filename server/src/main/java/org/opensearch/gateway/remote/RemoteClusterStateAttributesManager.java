@@ -56,7 +56,7 @@ public class RemoteClusterStateAttributesManager {
             ),
             ex -> latchedActionListener.onFailure(new RemoteClusterStateUtils.RemoteStateTransferException(component, ex))
         );
-        return remoteObject.writeAsync(completionListener);
+        return () -> remoteObject.writeAsync(completionListener);
     }
 
     private AbstractRemoteBlobStoreObject getRemoteObject(ToXContent componentData, long stateVersion, String clusterUUID) {
