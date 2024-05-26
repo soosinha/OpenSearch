@@ -72,7 +72,7 @@ public class RemoteIndexMetadata extends AbstractRemoteBlobStoreObject<IndexMeta
 
     @Override
     public BlobPathParameters getBlobPathParameters() {
-        return new BlobPathParameters(List.of(INDEX_PATH_TOKEN), "metadata");
+        return new BlobPathParameters(List.of(INDEX_PATH_TOKEN, indexMetadata.getIndexUUID()), "metadata");
     }
 
     @Override

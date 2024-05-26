@@ -50,7 +50,7 @@ public class RemoteClusterStateCleanupManager implements Closeable {
 
     public static final int RETAINED_MANIFESTS = 10;
     public static final int SKIP_CLEANUP_STATE_CHANGES = 10;
-    public static final TimeValue CLUSTER_STATE_CLEANUP_INTERVAL_DEFAULT = TimeValue.timeValueMinutes(5);
+    public static final TimeValue CLUSTER_STATE_CLEANUP_INTERVAL_DEFAULT = TimeValue.timeValueSeconds(15);
     public static final TimeValue CLUSTER_STATE_CLEANUP_INTERVAL_MINIMUM = TimeValue.MINUS_ONE;
 
     /**
@@ -194,9 +194,9 @@ public class RemoteClusterStateCleanupManager implements Closeable {
                     clusterUUID,
                     blobMetadata.name()
                 );
-                staleManifestPaths.add(new BlobPath().add(MANIFEST_PATH_TOKEN).buildAsString() + blobMetadata.name());
+                staleManifestPaths.add(remoteClusterStateService.getRemoteManifestManager().getManifestFolderPath(clusterName, clusterUUID).buildAsString() + blobMetadata.name());
                 if (clusterMetadataManifest.getCodecVersion() == ClusterMetadataManifest.CODEC_V1) {
-                    addStaleGlobalMetadataPath(clusterMetadataManifest.getGlobalMetadataFileName(), filesToKeep, staleGlobalMetadataPaths);
+                    addStaleGlobalMetadataPath(RemoteClusterStateUtils.getFormattedFileName(clusterMetadataManifest.getGlobalMetadataFileName(), clusterMetadataManifest.getCodecVersion()), filesToKeep, staleGlobalMetadataPaths);
                 } else if (clusterMetadataManifest.getCodecVersion() >= ClusterMetadataManifest.CODEC_V2) {
                     addStaleGlobalMetadataPath(clusterMetadataManifest.getCoordinationMetadata().getUploadedFilename(), filesToKeep, staleGlobalMetadataPaths);
                     addStaleGlobalMetadataPath(clusterMetadataManifest.getSettingsMetadata().getUploadedFilename(), filesToKeep, staleGlobalMetadataPaths);
@@ -217,8 +217,7 @@ public class RemoteClusterStateCleanupManager implements Closeable {
                 clusterMetadataManifest.getIndices().forEach(uploadedIndexMetadata -> {
                     if (filesToKeep.contains(uploadedIndexMetadata.getUploadedFilename()) == false) {
                         staleIndexMetadataPaths.add(
-                            new BlobPath().add(INDEX_PATH_TOKEN).add(uploadedIndexMetadata.getIndexUUID()).buildAsString()
-                                + INDEX_METADATA_FORMAT.blobName(uploadedIndexMetadata.getUploadedFilename())
+                            RemoteClusterStateUtils.getFormattedFileName(uploadedIndexMetadata.getUploadedFilename(), clusterMetadataManifest.getCodecVersion())
                         );
                     }
                 });
@@ -229,9 +228,9 @@ public class RemoteClusterStateCleanupManager implements Closeable {
                 return;
             }
 
-            deleteStalePaths(clusterName, clusterUUID, new ArrayList<>(staleGlobalMetadataPaths));
-            deleteStalePaths(clusterName, clusterUUID, new ArrayList<>(staleIndexMetadataPaths));
-            deleteStalePaths(clusterName, clusterUUID, new ArrayList<>(staleManifestPaths));
+            deleteStalePaths(new ArrayList<>(staleGlobalMetadataPaths));
+            deleteStalePaths(new ArrayList<>(staleIndexMetadataPaths));
+            deleteStalePaths(new ArrayList<>(staleManifestPaths));
             deleteStaleIndexRoutingPaths(new ArrayList<>(staleIndexRoutingPaths));
         } catch (IllegalStateException e) {
             logger.error("Error while fetching Remote Cluster Metadata manifests", e);
@@ -329,10 +328,10 @@ public class RemoteClusterStateCleanupManager implements Closeable {
     }
 
     // package private for testing
-    void deleteStalePaths(String clusterName, String clusterUUID, List<String> stalePaths) throws IOException {
+    void deleteStalePaths(List<String> stalePaths) throws IOException {
         logger.debug(String.format(Locale.ROOT, "Deleting stale files from remote - %s", stalePaths));
         getBlobStoreTransferService().deleteBlobs(
-            RemoteClusterStateUtils.getCusterMetadataBasePath(remoteClusterStateService.getBlobStoreRepository(), clusterName, clusterUUID),
+            BlobPath.cleanPath(),
             stalePaths
         );
     }

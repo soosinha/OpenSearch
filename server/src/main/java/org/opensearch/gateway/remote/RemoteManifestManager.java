@@ -185,7 +185,8 @@ public class RemoteManifestManager {
     ClusterMetadataManifest fetchRemoteClusterMetadataManifest(String clusterName, String clusterUUID, String filename)
         throws IllegalStateException {
         try {
-            RemoteClusterMetadataManifest remoteClusterMetadataManifest = new RemoteClusterMetadataManifest(filename, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+            String fullBlobName = getManifestFolderPath(clusterName, clusterUUID).buildAsString() + filename;
+            RemoteClusterMetadataManifest remoteClusterMetadataManifest = new RemoteClusterMetadataManifest(fullBlobName, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
             return remoteClusterMetadataManifest.read();
         } catch (IOException e) {
             throw new IllegalStateException(String.format(Locale.ROOT, "Error while downloading cluster metadata - %s", filename), e);
@@ -270,7 +271,7 @@ public class RemoteManifestManager {
     private Optional<String> getLatestManifestFileName(String clusterName, String clusterUUID) throws IllegalStateException {
         List<BlobMetadata> manifestFilesMetadata = getManifestFileNames(clusterName, clusterUUID, RemoteClusterMetadataManifest.MANIFEST_FILE_PREFIX + DELIMITER, 1);
         if (manifestFilesMetadata != null && !manifestFilesMetadata.isEmpty()) {
-            return Optional.of(getManifestFolderPath(clusterName, clusterUUID).buildAsString() + manifestFilesMetadata.get(0).name());
+            return Optional.of(manifestFilesMetadata.get(0).name());
         }
         logger.info("No manifest file present in remote store for cluster name: {}, cluster UUID: {}", clusterName, clusterUUID);
         return Optional.empty();
@@ -280,7 +281,7 @@ public class RemoteManifestManager {
         final String filePrefix = getManifestFilePrefixForTermVersion(term, version);
         List<BlobMetadata> manifestFilesMetadata = getManifestFileNames(clusterName, clusterUUID, filePrefix, 1);
         if (manifestFilesMetadata != null && !manifestFilesMetadata.isEmpty()) {
-            return Optional.of(getManifestFolderPath(clusterName, clusterUUID).buildAsString() + manifestFilesMetadata.get(0).name());
+            return Optional.of(manifestFilesMetadata.get(0).name());
         }
         logger.info("No manifest file present in remote store for cluster name: {}, cluster UUID: {}, term: {}, version: {}", clusterName, clusterUUID, term, version);
         return Optional.empty();
