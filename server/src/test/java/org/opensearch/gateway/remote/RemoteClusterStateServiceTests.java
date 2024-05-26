@@ -89,15 +89,13 @@ import org.mockito.ArgumentMatchers;
 
 import static java.util.stream.Collectors.toList;
 import static org.opensearch.common.util.FeatureFlags.REMOTE_ROUTING_TABLE_EXPERIMENTAL;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.RETAINED_MANIFESTS;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.FORMAT_PARAMS;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.RemoteStateTransferException;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.COORDINATION_METADATA;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.SETTING_METADATA;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.TEMPLATES_METADATA;
-import static org.opensearch.gateway.remote.RemoteManifestManager.MANIFEST_CURRENT_CODEC_VERSION;
-import static org.opensearch.node.NodeRoleSettings.NODE_ROLES_SETTING;
+import static org.opensearch.gateway.remote.RemoteClusterMetadataManifest.MANIFEST_CURRENT_CODEC_VERSION;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.REMOTE_STORE_CLUSTER_STATE_REPOSITORY_NAME_ATTRIBUTE_KEY;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.REMOTE_STORE_REPOSITORY_SETTINGS_ATTRIBUTE_KEY_PREFIX;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.REMOTE_STORE_REPOSITORY_TYPE_ATTRIBUTE_KEY_FORMAT;
@@ -1553,7 +1551,7 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
         when(blobContainer.listBlobsByPrefixInSortedOrder("manifest" + DELIMITER, 1, BlobContainer.BlobNameSortOrder.LEXICOGRAPHIC))
             .thenReturn(Arrays.asList(blobMetadata));
 
-        BytesReference bytes = RemoteManifestManager.CLUSTER_METADATA_MANIFEST_FORMAT.serialize(
+        BytesReference bytes = RemoteClusterMetadataManifest.CLUSTER_METADATA_MANIFEST_FORMAT.serialize(
             clusterMetadataManifest,
             manifestFileName,
             blobStoreRepository.getCompressor(),
@@ -1594,7 +1592,7 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
         when(blobContainer.listBlobsByPrefixInSortedOrder("manifest" + DELIMITER, 1, BlobContainer.BlobNameSortOrder.LEXICOGRAPHIC))
             .thenReturn(Arrays.asList(blobMetadata));
 
-        BytesReference bytes = RemoteManifestManager.CLUSTER_METADATA_MANIFEST_FORMAT.serialize(
+        BytesReference bytes = RemoteClusterMetadataManifest.CLUSTER_METADATA_MANIFEST_FORMAT.serialize(
             clusterMetadataManifest,
             mockManifestFileName,
             blobStoreRepository.getCompressor(),

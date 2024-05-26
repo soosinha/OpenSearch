@@ -21,6 +21,7 @@ import org.opensearch.common.settings.Setting;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.index.remote.RemoteStoreUtils;
+import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
 
@@ -34,6 +35,7 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import org.opensearch.threadpool.ThreadPool;
 
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.FORMAT_PARAMS;
@@ -41,11 +43,6 @@ import static org.opensearch.gateway.remote.RemoteClusterStateUtils.RemoteStateT
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.getCusterMetadataBasePath;
 
 public class RemoteManifestManager {
-    public static final String MANIFEST_PATH_TOKEN = "manifest";
-    public static final String MANIFEST_FILE_PREFIX = "manifest";
-    public static final String METADATA_MANIFEST_NAME_FORMAT = "%s";
-    public static final int MANIFEST_CURRENT_CODEC_VERSION = ClusterMetadataManifest.CODEC_V3;
-    public static final int SPLITED_MANIFEST_FILE_LENGTH = 6; // file name manifest__term__version__C/P__timestamp__codecversion
 
     public static final TimeValue METADATA_MANIFEST_UPLOAD_TIMEOUT_DEFAULT = TimeValue.timeValueMillis(20000);
 
@@ -56,69 +53,20 @@ public class RemoteManifestManager {
         Setting.Property.NodeScope
     );
 
-    /**
-     * Manifest format compatible with older codec v0, where codec version was missing.
-     */
-    public static final ChecksumBlobStoreFormat<ClusterMetadataManifest> CLUSTER_METADATA_MANIFEST_FORMAT_V0 =
-        new ChecksumBlobStoreFormat<>("cluster-metadata-manifest", METADATA_MANIFEST_NAME_FORMAT, ClusterMetadataManifest::fromXContentV0);
-    /**
-     * Manifest format compatible with older codec v1, where global metadata was missing.
-     */
-    public static final ChecksumBlobStoreFormat<ClusterMetadataManifest> CLUSTER_METADATA_MANIFEST_FORMAT_V1 =
-        new ChecksumBlobStoreFormat<>("cluster-metadata-manifest", METADATA_MANIFEST_NAME_FORMAT, ClusterMetadataManifest::fromXContentV1);
-
-    /**
-     * Manifest format compatible with codec v2, where we introduced codec versions/global metadata.
-     */
-    public static final ChecksumBlobStoreFormat<ClusterMetadataManifest> CLUSTER_METADATA_MANIFEST_FORMAT = new ChecksumBlobStoreFormat<>(
-        "cluster-metadata-manifest",
-        METADATA_MANIFEST_NAME_FORMAT,
-        ClusterMetadataManifest::fromXContent
-    );
-
+    private final BlobStoreTransferService blobStoreTransferService;
     private final BlobStoreRepository blobStoreRepository;
     private volatile TimeValue metadataManifestUploadTimeout;
     private final String nodeId;
+    private final ThreadPool threadPool;
     private static final Logger logger = LogManager.getLogger(RemoteManifestManager.class);
 
-    RemoteManifestManager(BlobStoreRepository blobStoreRepository, ClusterSettings clusterSettings, String nodeId) {
+    RemoteManifestManager(BlobStoreTransferService blobStoreTransferService, BlobStoreRepository blobStoreRepository, ClusterSettings clusterSettings, String nodeId, ThreadPool threadPool) {
+        this.blobStoreTransferService = blobStoreTransferService;
         this.blobStoreRepository = blobStoreRepository;
         this.metadataManifestUploadTimeout = clusterSettings.get(METADATA_MANIFEST_UPLOAD_TIMEOUT_SETTING);
         this.nodeId = nodeId;
+        this.threadPool = threadPool;
         clusterSettings.addSettingsUpdateConsumer(METADATA_MANIFEST_UPLOAD_TIMEOUT_SETTING, this::setMetadataManifestUploadTimeout);
-    }
-
-    private ClusterMetadataManifest uploadV1Manifest(
-        ClusterState clusterState,
-        List<ClusterMetadataManifest.UploadedIndexMetadata> uploadedIndexMetadata,
-        String previousClusterUUID,
-        String globalMetadataFileName,
-        boolean committed
-    ) throws IOException {
-        synchronized (this) {
-            final String manifestFileName = getManifestFileName(
-                clusterState.term(),
-                clusterState.version(),
-                committed,
-                ClusterMetadataManifest.CODEC_V1
-            );
-            ClusterMetadataManifest manifest = ClusterMetadataManifest.builder()
-                .clusterTerm(clusterState.term())
-                .stateVersion(clusterState.getVersion())
-                .clusterUUID(clusterState.metadata().clusterUUID())
-                .stateUUID(clusterState.stateUUID())
-                .opensearchVersion(Version.CURRENT)
-                .nodeId(nodeId)
-                .committed(committed)
-                .codecVersion(ClusterMetadataManifest.CODEC_V1)
-                .globalMetadataFileName(globalMetadataFileName)
-                .indices(uploadedIndexMetadata)
-                .previousClusterUUID(previousClusterUUID)
-                .clusterUUIDCommitted(clusterState.metadata().clusterUUIDCommitted())
-                .build();
-            writeMetadataManifest(clusterState.getClusterName().value(), clusterState.metadata().clusterUUID(), manifest, manifestFileName);
-            return manifest;
-        }
     }
 
     ClusterMetadataManifest uploadManifest(
@@ -133,14 +81,8 @@ public class RemoteManifestManager {
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedClusterBlocksMetadata,
         ClusterStateDiffManifest clusterDiffManifest,
         List<ClusterMetadataManifest.UploadedIndexMetadata> routingIndexMetadata, boolean committed
-    ) throws IOException {
+    ) {
         synchronized (this) {
-            final String manifestFileName = getManifestFileName(
-                clusterState.term(),
-                clusterState.version(),
-                committed,
-                MANIFEST_CURRENT_CODEC_VERSION
-            );
             ClusterMetadataManifest.Builder manifestBuilder = ClusterMetadataManifest.builder();
             manifestBuilder.clusterTerm(clusterState.term())
                 .stateVersion(clusterState.getVersion())
@@ -149,7 +91,7 @@ public class RemoteManifestManager {
                 .opensearchVersion(Version.CURRENT)
                 .nodeId(nodeId)
                 .committed(committed)
-                .codecVersion(MANIFEST_CURRENT_CODEC_VERSION)
+                .codecVersion(RemoteClusterMetadataManifest.MANIFEST_CURRENT_CODEC_VERSION)
                 .indices(uploadedIndexMetadata)
                 .previousClusterUUID(previousClusterUUID)
                 .clusterUUIDCommitted(clusterState.metadata().clusterUUIDCommitted())
@@ -164,17 +106,14 @@ public class RemoteManifestManager {
                 .indicesRouting(routingIndexMetadata)
                 .metadataVersion(clusterState.metadata().version());
             final ClusterMetadataManifest manifest = manifestBuilder.build();
-            writeMetadataManifest(clusterState.getClusterName().value(), clusterState.metadata().clusterUUID(), manifest, manifestFileName);
+            writeMetadataManifest(clusterState.getClusterName().value(), clusterState.metadata().clusterUUID(), manifest);
             return manifest;
         }
     }
 
-    private void writeMetadataManifest(String clusterName, String clusterUUID, ClusterMetadataManifest uploadManifest, String fileName)
-        throws IOException {
+    private void writeMetadataManifest(String clusterName, String clusterUUID, ClusterMetadataManifest uploadManifest) {
         AtomicReference<String> result = new AtomicReference<String>();
         AtomicReference<Exception> exceptionReference = new AtomicReference<Exception>();
-
-        final BlobContainer metadataManifestContainer = manifestContainer(clusterName, clusterUUID);
 
         // latch to wait until upload is not finished
         CountDownLatch latch = new CountDownLatch(1);
@@ -183,14 +122,8 @@ public class RemoteManifestManager {
             logger.trace(String.format(Locale.ROOT, "Manifest file uploaded successfully."));
         }, ex -> { exceptionReference.set(ex); }), latch);
 
-        getClusterMetadataManifestBlobStoreFormat(fileName).writeAsyncWithUrgentPriority(
-            uploadManifest,
-            metadataManifestContainer,
-            fileName,
-            blobStoreRepository.getCompressor(),
-            completionListener,
-            FORMAT_PARAMS
-        );
+        RemoteClusterMetadataManifest remoteClusterMetadataManifest = new RemoteClusterMetadataManifest(uploadManifest, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+        remoteClusterMetadataManifest.writeAsync(completionListener);
 
         try {
             if (latch.await(getMetadataManifestUploadTimeout().millis(), TimeUnit.MILLISECONDS) == false) {
@@ -212,7 +145,7 @@ public class RemoteManifestManager {
         }
         logger.debug(
             "Metadata manifest file [{}] written during [{}] phase. ",
-            fileName,
+            remoteClusterMetadataManifest.getBlobFileName(),
             uploadManifest.isCommitted() ? "commit" : "publish"
         );
     }
@@ -229,6 +162,14 @@ public class RemoteManifestManager {
         return latestManifestFileName.map(s -> fetchRemoteClusterMetadataManifest(clusterName, clusterUUID, s));
     }
 
+    /**
+     * Fetch the cluster metadata manifest using term and version
+     * @param clusterName uuid of cluster state to refer to in remote
+     * @param clusterUUID name of the cluster
+     * @param term election term of the cluster
+     * @param version cluster state version number
+     * @return ClusterMetadataManifest
+     */
     public Optional<ClusterMetadataManifest> getClusterMetadataManifestByTermVersion(String clusterName, String clusterUUID, long term, long version) {
         Optional<String> manifestFileName = getManifestFileNameByTermVersion(clusterName, clusterUUID, term, version);
         return manifestFileName.map(s -> fetchRemoteClusterMetadataManifest(clusterName, clusterUUID, s));
@@ -244,11 +185,8 @@ public class RemoteManifestManager {
     ClusterMetadataManifest fetchRemoteClusterMetadataManifest(String clusterName, String clusterUUID, String filename)
         throws IllegalStateException {
         try {
-            return getClusterMetadataManifestBlobStoreFormat(filename).read(
-                manifestContainer(clusterName, clusterUUID),
-                filename,
-                blobStoreRepository.getNamedXContentRegistry()
-            );
+            RemoteClusterMetadataManifest remoteClusterMetadataManifest = new RemoteClusterMetadataManifest(filename, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+            return remoteClusterMetadataManifest.read();
         } catch (IOException e) {
             throw new IllegalStateException(String.format(Locale.ROOT, "Error while downloading cluster metadata - %s", filename), e);
         }
@@ -270,38 +208,13 @@ public class RemoteManifestManager {
         return manifestsByClusterUUID;
     }
 
-    private ChecksumBlobStoreFormat<ClusterMetadataManifest> getClusterMetadataManifestBlobStoreFormat(String fileName) {
-        long codecVersion = getManifestCodecVersion(fileName);
-        if (codecVersion == MANIFEST_CURRENT_CODEC_VERSION) {
-            return CLUSTER_METADATA_MANIFEST_FORMAT;
-        } else if (codecVersion == ClusterMetadataManifest.CODEC_V1) {
-            return CLUSTER_METADATA_MANIFEST_FORMAT_V1;
-        } else if (codecVersion == ClusterMetadataManifest.CODEC_V0) {
-            return CLUSTER_METADATA_MANIFEST_FORMAT_V0;
-        }
-
-        throw new IllegalArgumentException("Cluster metadata manifest file is corrupted, don't have valid codec version");
-    }
-
-    private int getManifestCodecVersion(String fileName) {
-        String[] splitName = fileName.split(DELIMITER);
-        if (splitName.length == SPLITED_MANIFEST_FILE_LENGTH) {
-            return Integer.parseInt(splitName[splitName.length - 1]); // Last value would be codec version.
-        } else if (splitName.length < SPLITED_MANIFEST_FILE_LENGTH) { // Where codec is not part of file name, i.e. default codec version 0
-            // is used.
-            return ClusterMetadataManifest.CODEC_V0;
-        } else {
-            throw new IllegalArgumentException("Manifest file name is corrupted");
-        }
-    }
-
     private BlobContainer manifestContainer(String clusterName, String clusterUUID) {
         // 123456789012_test-cluster/cluster-state/dsgYj10Nkso7/manifest
         return blobStoreRepository.blobStore().blobContainer(getManifestFolderPath(clusterName, clusterUUID));
     }
 
     BlobPath getManifestFolderPath(String clusterName, String clusterUUID) {
-        return getCusterMetadataBasePath(blobStoreRepository, clusterName, clusterUUID).add(MANIFEST_PATH_TOKEN);
+        return getCusterMetadataBasePath(blobStoreRepository, clusterName, clusterUUID).add(RemoteClusterMetadataManifest.MANIFEST_PATH_TOKEN);
     }
 
     public TimeValue getMetadataManifestUploadTimeout() {
@@ -338,24 +251,10 @@ public class RemoteManifestManager {
         }
     }
 
-    static String getManifestFileName(long term, long version, boolean committed, int codecVersion) {
-        // 123456789012_test-cluster/cluster-state/dsgYj10Nkso7/manifest/manifest__<inverted_term>__<inverted_version>__C/P__<inverted__timestamp>__<codec_version>
-        return String.join(
-            DELIMITER,
-            MANIFEST_PATH_TOKEN,
-            RemoteStoreUtils.invertLong(term),
-            RemoteStoreUtils.invertLong(version),
-            (committed ? "C" : "P"), // C for committed and P for published
-            RemoteStoreUtils.invertLong(System.currentTimeMillis()),
-            String.valueOf(codecVersion) // Keep the codec version at last place only, during read we reads last place to
-            // determine codec version.
-        );
-    }
-
     static String getManifestFilePrefixForTermVersion(long term, long version) {
         return String.join(
             DELIMITER,
-            MANIFEST_FILE_PREFIX,
+            RemoteClusterMetadataManifest.MANIFEST_FILE_PREFIX,
             RemoteStoreUtils.invertLong(term),
             RemoteStoreUtils.invertLong(version)
         ) + DELIMITER;
@@ -369,9 +268,9 @@ public class RemoteManifestManager {
      * @return latest ClusterMetadataManifest filename
      */
     private Optional<String> getLatestManifestFileName(String clusterName, String clusterUUID) throws IllegalStateException {
-        List<BlobMetadata> manifestFilesMetadata = getManifestFileNames(clusterName, clusterUUID, MANIFEST_FILE_PREFIX + DELIMITER, 1);
+        List<BlobMetadata> manifestFilesMetadata = getManifestFileNames(clusterName, clusterUUID, RemoteClusterMetadataManifest.MANIFEST_FILE_PREFIX + DELIMITER, 1);
         if (manifestFilesMetadata != null && !manifestFilesMetadata.isEmpty()) {
-            return Optional.of(manifestFilesMetadata.get(0).name());
+            return Optional.of(getManifestFolderPath(clusterName, clusterUUID).buildAsString() + manifestFilesMetadata.get(0).name());
         }
         logger.info("No manifest file present in remote store for cluster name: {}, cluster UUID: {}", clusterName, clusterUUID);
         return Optional.empty();
@@ -381,7 +280,7 @@ public class RemoteManifestManager {
         final String filePrefix = getManifestFilePrefixForTermVersion(term, version);
         List<BlobMetadata> manifestFilesMetadata = getManifestFileNames(clusterName, clusterUUID, filePrefix, 1);
         if (manifestFilesMetadata != null && !manifestFilesMetadata.isEmpty()) {
-            return Optional.of(manifestFilesMetadata.get(0).name());
+            return Optional.of(getManifestFolderPath(clusterName, clusterUUID).buildAsString() + manifestFilesMetadata.get(0).name());
         }
         logger.info("No manifest file present in remote store for cluster name: {}, cluster UUID: {}, term: {}, version: {}", clusterName, clusterUUID, term, version);
         return Optional.empty();

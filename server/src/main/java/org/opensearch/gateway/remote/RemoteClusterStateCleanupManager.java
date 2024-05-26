@@ -36,12 +36,10 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.GLOBAL_METADATA_FORMAT;
-import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.GLOBAL_METADATA_PATH_TOKEN;
 import static org.opensearch.gateway.remote.RemoteIndexMetadata.INDEX_METADATA_FORMAT;
 import static org.opensearch.gateway.remote.RemoteIndexMetadata.INDEX_PATH_TOKEN;
-import static org.opensearch.gateway.remote.RemoteManifestManager.MANIFEST_FILE_PREFIX;
-import static org.opensearch.gateway.remote.RemoteManifestManager.MANIFEST_PATH_TOKEN;
+import static org.opensearch.gateway.remote.RemoteClusterMetadataManifest.MANIFEST_FILE_PREFIX;
+import static org.opensearch.gateway.remote.RemoteClusterMetadataManifest.MANIFEST_PATH_TOKEN;
 
 /**
  * A Manager which provides APIs to clean up stale cluster state files and runs an async stale cleanup task
@@ -152,12 +150,7 @@ public class RemoteClusterStateCleanupManager implements Closeable {
 
     private void addStaleGlobalMetadataPath(String fileName, Set<String> filesToKeep, Set<String> staleGlobalMetadataPaths) {
         if (!filesToKeep.contains(fileName)) {
-            String[] splitPath = fileName.split("/");
-            staleGlobalMetadataPaths.add(
-                new BlobPath().add(GLOBAL_METADATA_PATH_TOKEN).buildAsString() + GLOBAL_METADATA_FORMAT.blobName(
-                    splitPath[splitPath.length - 1]
-                )
-            );
+            staleGlobalMetadataPaths.add(fileName);
         }
     }
 
@@ -181,9 +174,9 @@ public class RemoteClusterStateCleanupManager implements Closeable {
                     blobMetadata.name()
                 );
                 clusterMetadataManifest.getIndices()
-                    .forEach(uploadedIndexMetadata -> filesToKeep.add(uploadedIndexMetadata.getUploadedFilename()));
+                    .forEach(uploadedIndexMetadata -> filesToKeep.add(RemoteClusterStateUtils.getFormattedFileName(uploadedIndexMetadata.getUploadedFilename(), clusterMetadataManifest.getCodecVersion())));
                 if (clusterMetadataManifest.getCodecVersion() == ClusterMetadataManifest.CODEC_V1) {
-                    filesToKeep.add(clusterMetadataManifest.getGlobalMetadataFileName());
+                    filesToKeep.add(RemoteClusterStateUtils.getFormattedFileName(clusterMetadataManifest.getGlobalMetadataFileName(), clusterMetadataManifest.getCodecVersion()));
                 } else if (clusterMetadataManifest.getCodecVersion() >= ClusterMetadataManifest.CODEC_V2) {
                     filesToKeep.add(clusterMetadataManifest.getCoordinationMetadata().getUploadedFilename());
                     filesToKeep.add(clusterMetadataManifest.getSettingsMetadata().getUploadedFilename());

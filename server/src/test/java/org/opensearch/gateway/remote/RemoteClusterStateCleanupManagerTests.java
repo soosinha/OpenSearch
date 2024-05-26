@@ -70,8 +70,8 @@ import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.GLOBAL_M
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.SETTING_METADATA;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.TEMPLATES_METADATA;
 import static org.opensearch.gateway.remote.RemoteIndexMetadata.INDEX_PATH_TOKEN;
-import static org.opensearch.gateway.remote.RemoteManifestManager.MANIFEST_FILE_PREFIX;
-import static org.opensearch.gateway.remote.RemoteManifestManager.MANIFEST_PATH_TOKEN;
+import static org.opensearch.gateway.remote.RemoteClusterMetadataManifest.MANIFEST_FILE_PREFIX;
+import static org.opensearch.gateway.remote.RemoteClusterMetadataManifest.MANIFEST_PATH_TOKEN;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.REMOTE_STORE_CLUSTER_STATE_REPOSITORY_NAME_ATTRIBUTE_KEY;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.REMOTE_STORE_REPOSITORY_SETTINGS_ATTRIBUTE_KEY_PREFIX;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.REMOTE_STORE_REPOSITORY_TYPE_ATTRIBUTE_KEY_FORMAT;
