@@ -12,6 +12,7 @@ import static java.util.Objects.requireNonNull;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.METADATA_NAME_FORMAT;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.RemoteStateTransferException;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.getCusterMetadataBasePath;
+import static org.opensearch.gateway.remote.RemoteTransientSettingsMetadata.TRANSIENT_SETTING_METADATA;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -134,6 +135,8 @@ public class RemoteGlobalMetadataManager {
             remoteBlobStoreObject = new RemoteTemplatesMetadata(uploadFilename, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
         } else if (component.equals(SETTING_METADATA)) {
             remoteBlobStoreObject = new RemotePersistentSettingsMetadata(uploadFilename, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+        } else if (component.equals(TRANSIENT_SETTING_METADATA)) {
+            remoteBlobStoreObject = new RemoteTransientSettingsMetadata(uploadFilename, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
         } else if (component.equals(CUSTOM_METADATA)) {
             remoteBlobStoreObject = new RemoteCustomMetadata(uploadFilename, componentName, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
         } else {
@@ -291,6 +294,10 @@ public class RemoteGlobalMetadataManager {
             return new RemoteCoordinationMetadata((CoordinationMetadata) object, metadataVersion, clusterUUID, blobStoreTransferService,
                 blobStoreRepository, clusterName, threadPool);
         } else if (object instanceof  Settings) {
+            if (customType != null && customType.equals(TRANSIENT_SETTING_METADATA)) {
+                return new RemoteTransientSettingsMetadata((Settings) object, metadataVersion, clusterUUID, blobStoreTransferService,
+                    blobStoreRepository, clusterName, threadPool);
+            }
             return new RemotePersistentSettingsMetadata((Settings) object, metadataVersion, clusterUUID, blobStoreTransferService,
                 blobStoreRepository, clusterName, threadPool);
         } else if (object instanceof TemplatesMetadata) {

@@ -75,6 +75,7 @@ public class RemoteManifestManager {
         String previousClusterUUID,
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedCoordinationMetadata,
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedSettingsMetadata,
+        ClusterMetadataManifest.UploadedMetadataAttribute uploadedTransientSettingsMetadata,
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedTemplatesMetadata,
         Map<String, ClusterMetadataManifest.UploadedMetadataAttribute> uploadedCustomMetadataMap,
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedDiscoveryNodesMetadata,
@@ -104,7 +105,8 @@ public class RemoteManifestManager {
                 .diffManifest(clusterDiffManifest)
                 .routingTableVersion(clusterState.getRoutingTable().version())
                 .indicesRouting(routingIndexMetadata)
-                .metadataVersion(clusterState.metadata().version());
+                .metadataVersion(clusterState.metadata().version())
+                .transientSettingsMetadata(uploadedTransientSettingsMetadata);
             final ClusterMetadataManifest manifest = manifestBuilder.build();
             writeMetadataManifest(clusterState.getClusterName().value(), clusterState.metadata().clusterUUID(), manifest);
             return manifest;

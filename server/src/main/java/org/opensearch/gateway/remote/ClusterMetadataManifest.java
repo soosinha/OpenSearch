@@ -60,6 +60,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
     private static final ParseField METADATA_VERSION = new ParseField("metadata_version");
     private static final ParseField UPLOADED_COORDINATOR_METADATA = new ParseField("uploaded_coordinator_metadata");
     private static final ParseField UPLOADED_SETTINGS_METADATA = new ParseField("uploaded_settings_metadata");
+    private static final ParseField UPLOADED_TRANSIENT_SETTINGS_METADATA = new ParseField("uploaded_transient_settings_metadata");
     private static final ParseField UPLOADED_TEMPLATES_METADATA = new ParseField("uploaded_templates_metadata");
     private static final ParseField UPLOADED_CUSTOM_METADATA = new ParseField("uploaded_custom_metadata");
     private static final ParseField UPLOADED_DISCOVERY_NODES_METADATA = new ParseField("uploaded_discovery_nodes_metadata");
@@ -102,7 +103,8 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             .diffManifest(diffManifest(fields))
             .routingTableVersion(routingTableVersion(fields))
             .indicesRouting(indicesRouting(fields))
-            .metadataVersion(metadataVersion(fields));
+            .metadataVersion(metadataVersion(fields))
+            .transientSettingsMetadata(transientSettingsMetadata(fields));
     }
 
     private static long term(Object[] fields) {
@@ -192,6 +194,10 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
 
     private static long metadataVersion(Object[] fields) {
         return (long) fields[20];
+    }
+
+    private static UploadedMetadataAttribute transientSettingsMetadata(Object[] fields) {
+        return (UploadedMetadataAttribute) fields[21];
     }
 
     private static final ConstructingObjectParser<ClusterMetadataManifest, Void> PARSER_V0 = new ConstructingObjectParser<>(
@@ -288,6 +294,11 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                 INDICES_ROUTING_FIELD
             );
             parser.declareLong(ConstructingObjectParser.constructorArg(), METADATA_VERSION);
+            parser.declareNamedObject(
+                ConstructingObjectParser.optionalConstructorArg(),
+                UploadedMetadataAttribute.PARSER,
+                UPLOADED_TRANSIENT_SETTINGS_METADATA
+            );
         }
     }
 
@@ -296,6 +307,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
     private final long metadataVersion;
     private final UploadedMetadataAttribute uploadedCoordinationMetadata;
     private final UploadedMetadataAttribute uploadedSettingsMetadata;
+    private final UploadedMetadataAttribute uploadedTransientSettingsMetadata;
     private final UploadedMetadataAttribute uploadedTemplatesMetadata;
     private final UploadedMetadataAttribute uploadedDiscoveryNodesMetadata;
     private final UploadedMetadataAttribute uploadedClusterBlocksMetadata;
@@ -376,6 +388,10 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         return uploadedSettingsMetadata;
     }
 
+    public UploadedMetadataAttribute getTransientSettingsMetadata() {
+        return uploadedTransientSettingsMetadata;
+    }
+
     public UploadedMetadataAttribute getTemplatesMetadata() {
         return uploadedTemplatesMetadata;
     }
@@ -432,7 +448,8 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         ClusterStateDiffManifest diffManifest,
         long routingTableVersion,
         List<UploadedIndexMetadata> indicesRouting,
-        long metadataVersion
+        long metadataVersion,
+        UploadedMetadataAttribute uploadedTransientSettingsMetadata
     ) {
         this.clusterTerm = clusterTerm;
         this.stateVersion = version;
@@ -458,6 +475,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         this.routingTableVersion = routingTableVersion;
         this.indicesRouting = Collections.unmodifiableList(indicesRouting);
         this.metadataVersion = metadataVersion;
+        this.uploadedTransientSettingsMetadata = uploadedTransientSettingsMetadata;
     }
 
     public ClusterMetadataManifest(StreamInput in) throws IOException {
@@ -488,6 +506,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             this.routingTableVersion = in.readLong();
             this.indicesRouting = Collections.unmodifiableList(in.readList(UploadedIndexMetadata::new));
             this.metadataVersion = in.readLong();
+            this.uploadedTransientSettingsMetadata = new UploadedMetadataAttribute(in);
         } else if (in.getVersion().onOrAfter(Version.V_2_12_0)) {
             this.codecVersion = in.readInt();
             this.globalMetadataFileName = in.readString();
@@ -501,6 +520,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             this.uploadedClusterBlocksMetadata = null;
             this.diffManifest = null;
             this.metadataVersion = -1;
+            this.uploadedTransientSettingsMetadata = null;
         } else {
             this.codecVersion = CODEC_V0; // Default codec
             this.globalMetadataFileName = null;
@@ -514,6 +534,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             this.uploadedClusterBlocksMetadata = null;
             this.diffManifest = null;
             this.metadataVersion = -1;
+            this.uploadedTransientSettingsMetadata = null;
         }
     }
 
@@ -583,6 +604,11 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                 getClusterBlocksMetadata().toXContent(builder, params);
                 builder.endObject();
             }
+            if (getTransientSettingsMetadata() != null) {
+                builder.startObject(UPLOADED_TRANSIENT_SETTINGS_METADATA.getPreferredName());
+                getTransientSettingsMetadata().toXContent(builder, params);
+                builder.endObject();
+            }
             if (getDiffManifest() != null) {
                 builder.startObject(DIFF_MANIFEST.getPreferredName());
                 getDiffManifest().toXContent(builder, params);
@@ -624,6 +650,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
             out.writeLong(routingTableVersion);
             out.writeCollection(indicesRouting);
             out.writeLong(metadataVersion);
+            uploadedTransientSettingsMetadata.writeTo(out);
         } else if (out.getVersion().onOrAfter(Version.V_2_12_0)) {
             out.writeInt(codecVersion);
             out.writeString(globalMetadataFileName);
@@ -709,6 +736,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         private UploadedMetadataAttribute clusterBlocksMetadata;
         private UploadedMetadataAttribute coordinationMetadata;
         private UploadedMetadataAttribute settingsMetadata;
+        private UploadedMetadataAttribute transientSettingsMetadata;
         private UploadedMetadataAttribute templatesMetadata;
         private Map<String, UploadedMetadataAttribute> customMetadataMap;
         private int codecVersion;
@@ -763,6 +791,11 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
 
         public Builder settingMetadata(UploadedMetadataAttribute settingsMetadata) {
             this.settingsMetadata = settingsMetadata;
+            return this;
+        }
+
+        public Builder transientSettingsMetadata(UploadedMetadataAttribute settingsMetadata) {
+            this.transientSettingsMetadata = settingsMetadata;
             return this;
         }
 
@@ -852,6 +885,7 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
         public Builder() {
             indices = new ArrayList<>();
             customMetadataMap = new HashMap<>();
+            indicesRouting = new ArrayList<>();
         }
 
         public Builder(ClusterMetadataManifest manifest) {
@@ -899,7 +933,8 @@ public class ClusterMetadataManifest implements Writeable, ToXContentFragment {
                 diffManifest,
                 routingTableVersion,
                 indicesRouting,
-                metadataVersion
+                metadataVersion,
+                transientSettingsMetadata
             );
         }
 

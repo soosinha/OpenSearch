@@ -77,6 +77,7 @@ public class RemoteClusterStateUtils {
         Map<String, ClusterMetadataManifest.UploadedMetadataAttribute> uploadedCustomMetadataMap;
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedCoordinationMetadata;
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedSettingsMetadata;
+        ClusterMetadataManifest.UploadedMetadataAttribute uploadedTransientSettingsMetadata;
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedTemplatesMetadata;
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedDiscoveryNodes;
         ClusterMetadataManifest.UploadedMetadataAttribute uploadedClusterBlocks;
@@ -87,6 +88,7 @@ public class RemoteClusterStateUtils {
             Map<String, ClusterMetadataManifest.UploadedMetadataAttribute> uploadedCustomMetadataMap,
             ClusterMetadataManifest.UploadedMetadataAttribute uploadedCoordinationMetadata,
             ClusterMetadataManifest.UploadedMetadataAttribute uploadedSettingsMetadata,
+            ClusterMetadataManifest.UploadedMetadataAttribute uploadedTransientSettingsMetadata,
             ClusterMetadataManifest.UploadedMetadataAttribute uploadedTemplatesMetadata,
             ClusterMetadataManifest.UploadedMetadataAttribute uploadedDiscoveryNodes,
             ClusterMetadataManifest.UploadedMetadataAttribute uploadedClusterBlocks,
@@ -96,6 +98,7 @@ public class RemoteClusterStateUtils {
             this.uploadedCustomMetadataMap = uploadedCustomMetadataMap;
             this.uploadedCoordinationMetadata = uploadedCoordinationMetadata;
             this.uploadedSettingsMetadata = uploadedSettingsMetadata;
+            this.uploadedTransientSettingsMetadata = uploadedTransientSettingsMetadata;
             this.uploadedTemplatesMetadata = uploadedTemplatesMetadata;
             this.uploadedDiscoveryNodes = uploadedDiscoveryNodes;
             this.uploadedClusterBlocks = uploadedClusterBlocks;
@@ -107,6 +110,7 @@ public class RemoteClusterStateUtils {
             this.uploadedCustomMetadataMap = new HashMap<>();
             this.uploadedCoordinationMetadata = null;
             this.uploadedSettingsMetadata = null;
+            this.uploadedTransientSettingsMetadata = null;
             this.uploadedTemplatesMetadata = null;
             this.uploadedDiscoveryNodes = null;
             this.uploadedClusterBlocks = null;

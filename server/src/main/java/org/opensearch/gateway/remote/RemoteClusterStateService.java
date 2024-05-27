@@ -22,6 +22,7 @@ import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.CUSTOM_M
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.SETTING_METADATA;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.TEMPLATES_METADATA;
 import static org.opensearch.gateway.remote.RemoteIndexMetadata.INDEX_PATH_TOKEN;
+import static org.opensearch.gateway.remote.RemoteTransientSettingsMetadata.TRANSIENT_SETTING_METADATA;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.isRemoteRoutingTableEnabled;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.isRemoteStoreClusterStateEnabled;
 
@@ -213,7 +214,8 @@ public class RemoteClusterStateService implements Closeable {
             true,
             true,
             true,
-            new ArrayList<>(clusterState.getRoutingTable().indicesRouting().values()));
+            new ArrayList<>(clusterState.getRoutingTable().indicesRouting().values()),
+            true);
 
         final ClusterMetadataManifest manifest = remoteManifestManager.uploadManifest(
             clusterState,
@@ -221,6 +223,7 @@ public class RemoteClusterStateService implements Closeable {
             previousClusterUUID,
             uploadedMetadataResults.uploadedCoordinationMetadata,
             uploadedMetadataResults.uploadedSettingsMetadata,
+            uploadedMetadataResults.uploadedTransientSettingsMetadata,
             uploadedMetadataResults.uploadedTemplatesMetadata,
             uploadedMetadataResults.uploadedCustomMetadataMap,
             uploadedMetadataResults.uploadedDiscoveryNodes,
@@ -324,6 +327,8 @@ public class RemoteClusterStateService implements Closeable {
         ;
         boolean updateSettingsMetadata = firstUploadForSplitGlobalMetadata
             || Metadata.isSettingsMetadataEqual(previousClusterState.metadata(), clusterState.metadata()) == false;
+        boolean updateTransientSettingsMetadata = firstUploadForSplitGlobalMetadata
+            || Metadata.isTransientSettingsMetadataEqual(previousClusterState.metadata(), clusterState.metadata()) == false;
         boolean updateTemplatesMetadata = firstUploadForSplitGlobalMetadata
             || Metadata.isTemplatesMetadataEqual(previousClusterState.metadata(), clusterState.metadata()) == false;
         // Write Global Metadata
@@ -352,8 +357,9 @@ public class RemoteClusterStateService implements Closeable {
             updateTemplatesMetadata,
             updateDiscoveryNodes,
             updateClusterBlocks,
-            indicesRoutingToUpload
-            );
+            indicesRoutingToUpload,
+            updateTransientSettingsMetadata
+        );
 
 
         // update the map if the metadata was uploaded
@@ -376,6 +382,7 @@ public class RemoteClusterStateService implements Closeable {
             previousManifest.getPreviousClusterUUID(),
             updateCoordinationMetadata ? uploadedMetadataResults.uploadedCoordinationMetadata : previousManifest.getCoordinationMetadata(),
             updateSettingsMetadata ? uploadedMetadataResults.uploadedSettingsMetadata : previousManifest.getSettingsMetadata(),
+            updateTransientSettingsMetadata ? uploadedMetadataResults.uploadedTransientSettingsMetadata : previousManifest.getTransientSettingsMetadata(),
             updateTemplatesMetadata ? uploadedMetadataResults.uploadedTemplatesMetadata : previousManifest.getTemplatesMetadata(),
             firstUploadForSplitGlobalMetadata || !customsToUpload.isEmpty()
                 ? allUploadedCustomMap
@@ -453,9 +460,11 @@ public class RemoteClusterStateService implements Closeable {
         boolean uploadTemplateMetadata,
         boolean uploadDiscoveryNodes,
         boolean uploadClusterBlock,
-        List<IndexRoutingTable> indicesRoutingToUpload) throws IOException {
+        List<IndexRoutingTable> indicesRoutingToUpload,
+        boolean uploadTransientSettingMetadata) throws IOException {
         int totalUploadTasks = indexToUpload.size() + indexMetadataUploadListeners.size() + customToUpload.size() + (uploadCoordinationMetadata ? 1 : 0) + (uploadSettingsMetadata
-            ? 1 : 0) + (uploadTemplateMetadata ? 1 : 0) + (uploadDiscoveryNodes  ? 1 : 0) + (uploadClusterBlock ? 1 : 0) + indicesRoutingToUpload.size();
+            ? 1 : 0) + (uploadTemplateMetadata ? 1 : 0) + (uploadDiscoveryNodes  ? 1 : 0) + (uploadClusterBlock ? 1 : 0) + indicesRoutingToUpload.size() +
+            (uploadTransientSettingMetadata ? 1 : 0);
         CountDownLatch latch = new CountDownLatch(totalUploadTasks);
         Map<String, CheckedRunnable<IOException>> uploadTasks = new ConcurrentHashMap<>(totalUploadTasks);
         Map<String, ClusterMetadataManifest.UploadedMetadata> results = new ConcurrentHashMap<>(totalUploadTasks);
@@ -484,6 +493,18 @@ public class RemoteClusterStateService implements Closeable {
                     clusterState.metadata().clusterUUID(),
                     listener,
                     null
+                )
+            );
+        }
+        if (uploadTransientSettingMetadata) {
+            uploadTasks.put(
+                TRANSIENT_SETTING_METADATA,
+                remoteGlobalMetadataManager.getAsyncMetadataWriteAction(
+                    clusterState.metadata().transientSettings(),
+                    clusterState.metadata().version(),
+                    clusterState.metadata().clusterUUID(),
+                    listener,
+                    TRANSIENT_SETTING_METADATA
                 )
             );
         }
@@ -623,6 +644,8 @@ public class RemoteClusterStateService implements Closeable {
                 response.uploadedCoordinationMetadata = (UploadedMetadataAttribute) uploadedMetadata;
             } else if (SETTING_METADATA.equals(name)) {
                 response.uploadedSettingsMetadata = (UploadedMetadataAttribute) uploadedMetadata;
+            } else if (TRANSIENT_SETTING_METADATA.equals(name)) {
+                response.uploadedTransientSettingsMetadata = (UploadedMetadataAttribute) uploadedMetadata;
             } else if (TEMPLATES_METADATA.equals(name)) {
                 response.uploadedTemplatesMetadata = (UploadedMetadataAttribute) uploadedMetadata;
             } else if (name.contains(UploadedIndexMetadata.COMPONENT_PREFIX)) {
@@ -715,6 +738,7 @@ public class RemoteClusterStateService implements Closeable {
             previousManifest.getPreviousClusterUUID(),
             previousManifest.getCoordinationMetadata(),
             previousManifest.getSettingsMetadata(),
+            previousManifest.getTransientSettingsMetadata(),
             previousManifest.getTemplatesMetadata(),
             previousManifest.getCustomMetadataMap(),
             previousManifest.getDiscoveryNodesMetadata(),
@@ -828,12 +852,13 @@ public class RemoteClusterStateService implements Closeable {
         Map<String, UploadedMetadataAttribute> customToRead,
         boolean readCoordinationMetadata,
         boolean readSettingsMetadata,
+        boolean readTransientSettingsMetadata,
         boolean readTemplatesMetadata,
         boolean readDiscoveryNodes,
         boolean readClusterBlocks,
         List<UploadedIndexMetadata> indicesRoutingToRead
     ) throws IOException {
-        int totalReadTasks = indicesToRead.size() + customToRead.size() + indicesRoutingToRead.size() + (readCoordinationMetadata ? 1 : 0) + (readSettingsMetadata ? 1 : 0) + (readTemplatesMetadata ? 1 : 0) + (readDiscoveryNodes ? 1 : 0) + (readClusterBlocks ? 1 : 0);
+        int totalReadTasks = indicesToRead.size() + customToRead.size() + indicesRoutingToRead.size() + (readCoordinationMetadata ? 1 : 0) + (readSettingsMetadata ? 1 : 0) + (readTemplatesMetadata ? 1 : 0) + (readDiscoveryNodes ? 1 : 0) + (readClusterBlocks ? 1 : 0) + (readTransientSettingsMetadata ? 1 : 0);
         CountDownLatch latch = new CountDownLatch(totalReadTasks);
         List<CheckedRunnable<IOException>> asyncMetadataReadActions = new ArrayList<>();
         List<RemoteReadResult> readResults = new ArrayList<>();
@@ -927,6 +952,19 @@ public class RemoteClusterStateService implements Closeable {
             );
         }
 
+        if (readTransientSettingsMetadata) {
+            asyncMetadataReadActions.add(
+                remoteGlobalMetadataManager.getAsyncMetadataReadAction(
+                    clusterName,
+                    clusterUUID,
+                    TRANSIENT_SETTING_METADATA,
+                    TRANSIENT_SETTING_METADATA,
+                    manifest.getTransientSettingsMetadata().getUploadedFilename(),
+                    listener
+                )
+            );
+        }
+
         if (readTemplatesMetadata) {
             asyncMetadataReadActions.add(
                 remoteGlobalMetadataManager.getAsyncMetadataReadAction(
@@ -1011,6 +1049,9 @@ public class RemoteClusterStateService implements Closeable {
                 case SETTING_METADATA:
                     metadataBuilder.persistentSettings((Settings) remoteReadResult.getObj());
                     break;
+                case TRANSIENT_SETTING_METADATA:
+                    metadataBuilder.transientSettings((Settings) remoteReadResult.getObj());
+                    break;
                 case TEMPLATES_METADATA:
                     metadataBuilder.templates((TemplatesMetadata) remoteReadResult.getObj());
                     break;
@@ -1052,6 +1093,7 @@ public class RemoteClusterStateService implements Closeable {
             manifest.getCustomMetadataMap(),
             manifest.getCoordinationMetadata() != null,
             manifest.getSettingsMetadata() != null,
+            manifest.getTransientSettingsMetadata() != null,
             manifest.getTemplatesMetadata() != null,
             includeEphemeral && manifest.getDiscoveryNodesMetadata() != null,
             includeEphemeral && manifest.getClusterBlocksMetadata() != null,
@@ -1090,6 +1132,7 @@ public class RemoteClusterStateService implements Closeable {
             updatedCustomMetadata,
             diff.isCoordinationMetadataUpdated(),
             diff.isSettingsMetadataUpdated(),
+            diff.isTransientSettingsMetadataUpdated(),
             diff.isTemplatesMetadataUpdated(),
             diff.isDiscoveryNodesUpdated(),
             diff.isClusterBlocksUpdated(),

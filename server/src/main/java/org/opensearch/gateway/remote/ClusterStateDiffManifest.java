@@ -36,6 +36,7 @@ public class ClusterStateDiffManifest implements ToXContentObject {
     private static final String METADATA_DIFF_FIELD = "metadata_diff";
     private static final String COORDINATION_METADATA_UPDATED_FIELD = "coordination_metadata_diff";
     private static final String SETTINGS_METADATA_UPDATED_FIELD = "settings_metadata_diff";
+    private static final String TRANSIENT_SETTINGS_METADATA_UPDATED_FIELD = "transient_settings_metadata_diff";
     private static final String TEMPLATES_METADATA_UPDATED_FIELD = "templates_metadata_diff";
     private static final String INDICES_DIFF_FIELD = "indices_diff";
     private static final String METADATA_CUSTOM_DIFF_FIELD = "metadata_custom_diff";
@@ -48,6 +49,7 @@ public class ClusterStateDiffManifest implements ToXContentObject {
     private final String toStateUUID;
     private final boolean coordinationMetadataUpdated;
     private final boolean settingsMetadataUpdated;
+    private final boolean transientSettingsMetadataUpdate;
     private final boolean templatesMetadataUpdated;
     private List<String> customMetadataUpdated;
     private final List<String> customMetadataDeleted;
@@ -63,6 +65,7 @@ public class ClusterStateDiffManifest implements ToXContentObject {
         toStateUUID = state.stateUUID();
         coordinationMetadataUpdated = !Metadata.isCoordinationMetadataEqual(state.metadata(), previousState.metadata());
         settingsMetadataUpdated = !Metadata.isSettingsMetadataEqual(state.metadata(), previousState.metadata());
+        transientSettingsMetadataUpdate = !Metadata.isTransientSettingsMetadataEqual(state.metadata(), previousState.metadata());
         templatesMetadataUpdated = !Metadata.isTemplatesMetadataEqual(state.metadata(), previousState.metadata());
         indicesDeleted = findRemovedIndices(state.metadata().indices(), previousState.metadata().indices());
         indicesUpdated = findUpdatedIndices(state.metadata().indices(), previousState.metadata().indices());
@@ -88,6 +91,7 @@ public class ClusterStateDiffManifest implements ToXContentObject {
                                     String toStateUUID,
                                     boolean coordinationMetadataUpdated,
                                     boolean settingsMetadataUpdated,
+                                    boolean transientSettingsMetadataUpdate,
                                     boolean templatesMetadataUpdated,
                                     List<String> customMetadataUpdated,
                                     List<String> customMetadataDeleted,
@@ -101,6 +105,7 @@ public class ClusterStateDiffManifest implements ToXContentObject {
         this.toStateUUID = toStateUUID;
         this.coordinationMetadataUpdated = coordinationMetadataUpdated;
         this.settingsMetadataUpdated = settingsMetadataUpdated;
+        this.transientSettingsMetadataUpdate = transientSettingsMetadataUpdate;
         this.templatesMetadataUpdated = templatesMetadataUpdated;
         this.customMetadataUpdated = customMetadataUpdated;
         this.customMetadataDeleted = customMetadataDeleted;
@@ -121,6 +126,7 @@ public class ClusterStateDiffManifest implements ToXContentObject {
             {
                 builder.field(COORDINATION_METADATA_UPDATED_FIELD, coordinationMetadataUpdated);
                 builder.field(SETTINGS_METADATA_UPDATED_FIELD, settingsMetadataUpdated);
+                builder.field(TRANSIENT_SETTINGS_METADATA_UPDATED_FIELD, transientSettingsMetadataUpdate);
                 builder.field(TEMPLATES_METADATA_UPDATED_FIELD, templatesMetadataUpdated);
                 builder.startObject(INDICES_DIFF_FIELD);
                 builder.startArray(UPSERTS_FIELD);
@@ -193,6 +199,9 @@ public class ClusterStateDiffManifest implements ToXContentObject {
                                     break;
                                 case SETTINGS_METADATA_UPDATED_FIELD:
                                     builder.settingsMetadataUpdated(parser.booleanValue());
+                                    break;
+                                case TRANSIENT_SETTINGS_METADATA_UPDATED_FIELD:
+                                    builder.transientSettingsMetadataUpdate(parser.booleanValue());
                                     break;
                                 case TEMPLATES_METADATA_UPDATED_FIELD:
                                     builder.templatesMetadataUpdated(parser.booleanValue());
@@ -352,6 +361,10 @@ public class ClusterStateDiffManifest implements ToXContentObject {
         return settingsMetadataUpdated;
     }
 
+    public boolean isTransientSettingsMetadataUpdated() {
+        return transientSettingsMetadataUpdate;
+    }
+
     public boolean isTemplatesMetadataUpdated() {
         return templatesMetadataUpdated;
     }
@@ -397,6 +410,7 @@ public class ClusterStateDiffManifest implements ToXContentObject {
         private String toStateUUID;
         private boolean coordinationMetadataUpdated;
         private boolean settingsMetadataUpdated;
+        private boolean transientSettingsMetadataUpdated;
         private boolean templatesMetadataUpdated;
         private List<String> customMetadataUpdated;
         private List<String> customMetadataDeleted;
@@ -425,6 +439,11 @@ public class ClusterStateDiffManifest implements ToXContentObject {
 
         public Builder settingsMetadataUpdated(boolean settingsMetadataUpdated) {
             this.settingsMetadataUpdated = settingsMetadataUpdated;
+            return this;
+        }
+
+        public Builder transientSettingsMetadataUpdate(boolean settingsMetadataUpdated) {
+            this.transientSettingsMetadataUpdated = settingsMetadataUpdated;
             return this;
         }
 
@@ -479,6 +498,7 @@ public class ClusterStateDiffManifest implements ToXContentObject {
                 toStateUUID,
                 coordinationMetadataUpdated,
                 settingsMetadataUpdated,
+                transientSettingsMetadataUpdated,
                 templatesMetadataUpdated,
                 customMetadataUpdated,
                 customMetadataDeleted,
