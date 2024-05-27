@@ -963,7 +963,7 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
 
         remoteClusterStateService.start();
         assertEquals(
-            remoteClusterStateService.getLatestClusterState(clusterState.getClusterName().value(), clusterState.metadata().clusterUUID())
+            remoteClusterStateService.getLatestClusterState(clusterState.getClusterName().value(), clusterState.metadata().clusterUUID(), false)
                 .getMetadata()
                 .getIndices()
                 .size(),
@@ -995,7 +995,8 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
             IllegalStateException.class,
             () -> remoteClusterStateService.getLatestClusterState(
                 clusterState.getClusterName().value(),
-                clusterState.metadata().clusterUUID()
+                clusterState.metadata().clusterUUID(),
+                false
             ).getMetadata().getIndices()
         );
         assertEquals(e.getMessage(), "Error while downloading IndexMetadata - " + uploadedIndexMetadata.getUploadedFilename());
@@ -1063,7 +1064,8 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
 
          ClusterState newClusterState = remoteClusterStateService.getLatestClusterState(
             clusterState.getClusterName().value(),
-            clusterState.metadata().clusterUUID()
+            clusterState.metadata().clusterUUID(),
+             false
         );
 
         assertTrue(Metadata.isGlobalStateEquals(newClusterState.getMetadata(), expactedMetadata));
@@ -1108,7 +1110,8 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
             IllegalStateException.class,
             () -> remoteClusterStateService.getLatestClusterState(
                 clusterState.getClusterName().value(),
-                clusterState.metadata().clusterUUID()
+                clusterState.metadata().clusterUUID(),
+                false
             )
         );
         assertEquals(e.getMessage(), "Error while downloading Global Metadata - " + globalIndexMetadataName);
@@ -1147,7 +1150,8 @@ public class RemoteClusterStateServiceTests extends OpenSearchTestCase {
 
         Map<String, IndexMetadata> indexMetadataMap = remoteClusterStateService.getLatestClusterState(
             clusterState.getClusterName().value(),
-            clusterState.metadata().clusterUUID()
+            clusterState.metadata().clusterUUID(),
+            false
         ).getMetadata().getIndices();
 
         assertEquals(indexMetadataMap.size(), 1);

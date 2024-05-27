@@ -48,7 +48,7 @@ public abstract class AbstractRemoteBlobStoreObject<T> implements RemoteObject<T
             generateBlobFileName();
         }
         String[] pathTokens = getFullBlobName().split(PATH_DELIMITER);
-        return getFullBlobName().split(PATH_DELIMITER)[pathTokens.length - 1];
+        return pathTokens[pathTokens.length - 1];
     }
 
     public abstract String generateBlobFileName();

@@ -31,7 +31,13 @@
 
 package org.opensearch.repositories.blobstore;
 
-import java.util.concurrent.CompletableFuture;
+import static org.opensearch.common.blobstore.transfer.RemoteTransferContainer.checksumOfChecksum;
+
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.IndexFormatTooNewException;
@@ -44,11 +50,9 @@ import org.opensearch.cluster.metadata.Metadata;
 import org.opensearch.common.CheckedFunction;
 import org.opensearch.common.blobstore.AsyncMultiStreamBlobContainer;
 import org.opensearch.common.blobstore.BlobContainer;
-import org.opensearch.common.blobstore.stream.read.ReadContext;
 import org.opensearch.common.blobstore.stream.write.WritePriority;
 import org.opensearch.common.blobstore.transfer.RemoteTransferContainer;
 import org.opensearch.common.blobstore.transfer.stream.OffsetRangeIndexInputStream;
-import org.opensearch.common.io.InputStreamContainer;
 import org.opensearch.common.io.Streams;
 import org.opensearch.common.lucene.store.ByteArrayIndexInput;
 import org.opensearch.common.xcontent.LoggingDeprecationHandler;
@@ -63,22 +67,6 @@ import org.opensearch.core.xcontent.XContentParser;
 import org.opensearch.gateway.CorruptStateException;
 import org.opensearch.index.store.exception.ChecksumCombinationException;
 import org.opensearch.snapshots.SnapshotInfo;
-import org.opensearch.threadpool.ThreadPool;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.SequenceInputStream;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.stream.Collectors;
-
-import static org.opensearch.common.blobstore.transfer.RemoteTransferContainer.checksumOfChecksum;
 
 /**
  * Snapshot metadata file format used in v2.0 and above
@@ -127,16 +115,6 @@ public final class ChecksumBlobStoreFormat<T extends ToXContent> extends BaseBlo
      */
     public T read(BlobContainer blobContainer, String name, NamedXContentRegistry namedXContentRegistry) throws IOException {String blobName = blobName(name);
         return deserialize(blobName, namedXContentRegistry, Streams.readFully(blobContainer.readBlob(blobName)));
-    }
-
-    public void readAsync(BlobContainer blobContainer, String name, NamedXContentRegistry namedXContentRegistry, ExecutorService executorService, ActionListener<T> listener) throws IOException {
-        executorService.execute(() -> {
-            try {
-                listener.onResponse(read(blobContainer, name, namedXContentRegistry));
-            } catch (Exception e) {
-                listener.onFailure(e);
-            }
-        });
     }
 
     public String blobName(String name) {

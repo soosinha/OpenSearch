@@ -803,7 +803,7 @@ public class RemoteClusterStateService implements Closeable {
      * @param clusterName name of the cluster
      * @return {@link IndexMetadata}
      */
-    public ClusterState getLatestClusterState(String clusterName, String clusterUUID) throws IOException {
+    public ClusterState getLatestClusterState(String clusterName, String clusterUUID, boolean includeEphemeral) throws IOException {
         start();
         Optional<ClusterMetadataManifest> clusterMetadataManifest = remoteManifestManager.getLatestClusterMetadataManifest(
             clusterName,
@@ -815,7 +815,7 @@ public class RemoteClusterStateService implements Closeable {
             );
         }
 
-        return getClusterStateForManifest(clusterName, clusterMetadataManifest.get(), nodeId);
+        return getClusterStateForManifest(clusterName, clusterMetadataManifest.get(), nodeId, includeEphemeral);
     }
 
     private ClusterState readClusterStateInParallel(
@@ -1041,7 +1041,7 @@ public class RemoteClusterStateService implements Closeable {
             .build();
     }
 
-    public ClusterState getClusterStateForManifest(String clusterName, ClusterMetadataManifest manifest, String localNodeId) throws IOException {
+    public ClusterState getClusterStateForManifest(String clusterName, ClusterMetadataManifest manifest, String localNodeId, boolean includeEphemeral) throws IOException {
         return readClusterStateInParallel(
             ClusterState.builder(new ClusterName(clusterName)).build(),
             manifest,
@@ -1053,9 +1053,9 @@ public class RemoteClusterStateService implements Closeable {
             manifest.getCoordinationMetadata() != null,
             manifest.getSettingsMetadata() != null,
             manifest.getTemplatesMetadata() != null,
-            manifest.getDiscoveryNodesMetadata() != null,
-            manifest.getClusterBlocksMetadata() != null,
-            manifest.getIndicesRouting()
+            includeEphemeral && manifest.getDiscoveryNodesMetadata() != null,
+            includeEphemeral && manifest.getClusterBlocksMetadata() != null,
+            includeEphemeral ? manifest.getIndicesRouting() : Collections.emptyList()
         );
     }
 

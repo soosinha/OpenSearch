@@ -250,7 +250,7 @@ public class PublicationTransportHandler {
         }
 
         if (applyFullState == true) {
-            ClusterState clusterState = remoteClusterStateService.getClusterStateForManifest(request.getClusterName(), manifest, transportService.getLocalNode().getId());
+            ClusterState clusterState = remoteClusterStateService.getClusterStateForManifest(request.getClusterName(), manifest, transportService.getLocalNode().getId(), true);
             logger.debug("Downloaded full cluster state [{}]", clusterState);
             fullClusterStateReceivedCount.incrementAndGet();
             final PublishWithJoinResponse response = acceptState(clusterState);
