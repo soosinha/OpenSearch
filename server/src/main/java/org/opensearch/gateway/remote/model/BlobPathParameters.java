@@ -6,14 +6,18 @@
  * compatible open source license.
  */
 
-package org.opensearch.gateway.remote;
+package org.opensearch.gateway.remote.model;
 
 import java.util.List;
 
+/**
+ * Parameters which can be used to construct a blob path
+ *
+ */
 public class BlobPathParameters {
 
-    private List<String> pathTokens;
-    private String filePrefix;
+    private final List<String> pathTokens;
+    private final String filePrefix;
 
     public BlobPathParameters(List<String> pathTokens, String filePrefix) {
         this.pathTokens = pathTokens;

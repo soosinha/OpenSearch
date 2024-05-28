@@ -6,7 +6,7 @@
  * compatible open source license.
  */
 
-package org.opensearch.gateway.remote;
+package org.opensearch.gateway.remote.model;
 
 import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.CLUSTER_STATE_ATTRIBUTES_CURRENT_CODEC_VERSION;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
@@ -19,13 +19,15 @@ import org.opensearch.cluster.node.DiscoveryNodes;
 import org.opensearch.common.io.Streams;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadata;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadataAttribute;
+import org.opensearch.gateway.remote.RemoteClusterStateUtils;
 import org.opensearch.index.remote.RemoteStoreUtils;
-import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
-import org.opensearch.threadpool.ThreadPool;
 
-public class RemoteDiscoveryNodes extends AbstractRemoteBlobStoreObject<DiscoveryNodes> {
+/**
+ * Wrapper class for uploading/downloading {@link DiscoveryNodes} to/from remote blob store
+ */
+public class RemoteDiscoveryNodes extends AbstractRemoteBlobObject<DiscoveryNodes> {
 
     public static final String DISCOVERY_NODES = "nodes";
     public static final ChecksumBlobStoreFormat<DiscoveryNodes> DISCOVERY_NODES_FORMAT = new ChecksumBlobStoreFormat<>(
@@ -36,32 +38,21 @@ public class RemoteDiscoveryNodes extends AbstractRemoteBlobStoreObject<Discover
 
     private DiscoveryNodes discoveryNodes;
     private long stateVersion;
-    private String blobName;
-    private final String clusterUUID;
 
-    public RemoteDiscoveryNodes(DiscoveryNodes discoveryNodes, long stateVersion,  String clusterUUID, BlobStoreTransferService blobStoreTransferService, BlobStoreRepository blobStoreRepository, String clusterName,
-        ThreadPool threadPool) {
-        super(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+    public RemoteDiscoveryNodes(DiscoveryNodes discoveryNodes, long stateVersion,  String clusterUUID, BlobStoreRepository blobStoreRepository) {
+        super(blobStoreRepository, clusterUUID);
         this.discoveryNodes = discoveryNodes;
         this.stateVersion = stateVersion;
-        this.clusterUUID = clusterUUID;
     }
 
-    public RemoteDiscoveryNodes(String blobName, String clusterUUID, BlobStoreTransferService blobStoreTransferService, BlobStoreRepository blobStoreRepository, String clusterName,
-        ThreadPool threadPool) {
-        super(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+    public RemoteDiscoveryNodes(String blobName, String clusterUUID, BlobStoreRepository blobStoreRepository) {
+        super(blobStoreRepository, clusterUUID);
         this.blobName = blobName;
-        this.clusterUUID = clusterUUID;
     }
 
     @Override
     public BlobPathParameters getBlobPathParameters() {
         return new BlobPathParameters(List.of("transient"), DISCOVERY_NODES);
-    }
-
-    @Override
-    public String getFullBlobName() {
-        return blobName;
     }
 
     @Override
@@ -74,8 +65,7 @@ public class RemoteDiscoveryNodes extends AbstractRemoteBlobStoreObject<Discover
             RemoteStoreUtils.invertLong(System.currentTimeMillis()),
             String.valueOf(CLUSTER_STATE_ATTRIBUTES_CURRENT_CODEC_VERSION)
         );
-        // setting the full blob path with name for future access
-        this.blobName = getBlobPathForUpload().buildAsString() + blobFileName;
+        this.blobFileName = blobFileName;
         return blobFileName;
     }
 
@@ -88,11 +78,6 @@ public class RemoteDiscoveryNodes extends AbstractRemoteBlobStoreObject<Discover
     @Override
     public DiscoveryNodes get() {
         return discoveryNodes;
-    }
-
-    @Override
-    public String clusterUUID() {
-        return clusterUUID;
     }
 
     @Override

@@ -6,7 +6,7 @@
  * compatible open source license.
  */
 
-package org.opensearch.gateway.remote;
+package org.opensearch.gateway.remote.model;
 
 import static org.opensearch.gateway.remote.RemoteClusterStateAttributesManager.CLUSTER_STATE_ATTRIBUTES_CURRENT_CODEC_VERSION;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
@@ -19,13 +19,15 @@ import org.opensearch.cluster.block.ClusterBlocks;
 import org.opensearch.common.io.Streams;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadata;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadataAttribute;
+import org.opensearch.gateway.remote.RemoteClusterStateUtils;
 import org.opensearch.index.remote.RemoteStoreUtils;
-import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
-import org.opensearch.threadpool.ThreadPool;
 
-public class RemoteClusterBlocks extends AbstractRemoteBlobStoreObject<ClusterBlocks> {
+/**
+ * Wrapper class for uploading/downloading {@link ClusterBlocks} to/from remote blob store
+ */
+public class RemoteClusterBlocks extends AbstractRemoteBlobObject<ClusterBlocks> {
 
     public static final String CLUSTER_BLOCKS = "blocks";
     public static final ChecksumBlobStoreFormat<ClusterBlocks> CLUSTER_BLOCKS_FORMAT = new ChecksumBlobStoreFormat<>(
@@ -36,34 +38,22 @@ public class RemoteClusterBlocks extends AbstractRemoteBlobStoreObject<ClusterBl
 
     private ClusterBlocks clusterBlocks;
     private long stateVersion;
-    private String blobName;
-    private final String clusterUUID;
 
-    public RemoteClusterBlocks(ClusterBlocks clusterBlocks, long stateVersion, String clusterUUID, BlobStoreTransferService blobStoreTransferService,
-        BlobStoreRepository blobStoreRepository, String clusterName,
-        ThreadPool threadPool) {
-        super(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+    public RemoteClusterBlocks(ClusterBlocks clusterBlocks, long stateVersion, String clusterUUID,
+        BlobStoreRepository blobStoreRepository) {
+        super(blobStoreRepository, clusterUUID);
         this.clusterBlocks = clusterBlocks;
         this.stateVersion = stateVersion;
-        this.clusterUUID = clusterUUID;
     }
 
-    public RemoteClusterBlocks(String blobName, String clusterUUID, BlobStoreTransferService blobStoreTransferService, BlobStoreRepository blobStoreRepository,
-        String clusterName,
-        ThreadPool threadPool) {
-        super(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+    public RemoteClusterBlocks(String blobName, String clusterUUID, BlobStoreRepository blobStoreRepository) {
+        super(blobStoreRepository, clusterUUID);
         this.blobName = blobName;
-        this.clusterUUID = clusterUUID;
     }
 
     @Override
     public BlobPathParameters getBlobPathParameters() {
         return new BlobPathParameters(List.of("transient"), CLUSTER_BLOCKS);
-    }
-
-    @Override
-    public String getFullBlobName() {
-        return blobName;
     }
 
     @Override
@@ -76,8 +66,7 @@ public class RemoteClusterBlocks extends AbstractRemoteBlobStoreObject<ClusterBl
             RemoteStoreUtils.invertLong(System.currentTimeMillis()),
             String.valueOf(CLUSTER_STATE_ATTRIBUTES_CURRENT_CODEC_VERSION)
         );
-        // setting the full blob path with name for future access
-        this.blobName = getBlobPathForUpload().buildAsString() + blobFileName;
+        this.blobFileName = blobFileName;
         return blobFileName;
     }
 
@@ -92,10 +81,6 @@ public class RemoteClusterBlocks extends AbstractRemoteBlobStoreObject<ClusterBl
         return clusterBlocks;
     }
 
-    @Override
-    public String clusterUUID() {
-        return clusterUUID;
-    }
 
     @Override
     public InputStream serialize() throws IOException {

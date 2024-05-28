@@ -21,8 +21,8 @@ import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.CUSTOM_D
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.CUSTOM_METADATA;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.SETTING_METADATA;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.TEMPLATES_METADATA;
-import static org.opensearch.gateway.remote.RemoteIndexMetadata.INDEX_PATH_TOKEN;
-import static org.opensearch.gateway.remote.RemoteTransientSettingsMetadata.TRANSIENT_SETTING_METADATA;
+import static org.opensearch.gateway.remote.model.RemoteIndexMetadata.INDEX_PATH_TOKEN;
+import static org.opensearch.gateway.remote.model.RemoteTransientSettingsMetadata.TRANSIENT_SETTING_METADATA;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.isRemoteRoutingTableEnabled;
 import static org.opensearch.node.remotestore.RemoteStoreNodeAttribute.isRemoteStoreClusterStateEnabled;
 
@@ -76,6 +76,7 @@ import org.opensearch.core.index.Index;
 import org.opensearch.core.xcontent.ToXContent;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedIndexMetadata;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadataAttribute;
+import org.opensearch.gateway.remote.model.RemoteReadResult;
 import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.node.Node;
 import org.opensearch.node.remotestore.RemoteStoreNodeAttribute;
@@ -795,7 +796,7 @@ public class RemoteClusterStateService implements Closeable {
         remoteGlobalMetadataManager = new RemoteGlobalMetadataManager(blobStoreRepository, clusterSettings,threadpool, getBlobStoreTransferService(), clusterName);
         remoteIndexMetadataManager = new RemoteIndexMetadataManager(blobStoreRepository, clusterSettings,threadpool, clusterName, getBlobStoreTransferService());
         remoteClusterStateAttributesManager = new RemoteClusterStateAttributesManager(getBlobStoreTransferService(), blobStoreRepository, threadpool, clusterName);
-        remoteManifestManager = new RemoteManifestManager(getBlobStoreTransferService(), blobStoreRepository, clusterSettings, nodeId, threadpool);
+        remoteManifestManager = new RemoteManifestManager(getBlobStoreTransferService(), blobStoreRepository, clusterSettings, nodeId, threadpool, clusterName);
         remoteClusterStateCleanupManager.start();
     }
 
@@ -916,7 +917,6 @@ public class RemoteClusterStateService implements Closeable {
         for (Map.Entry<String, UploadedMetadataAttribute> entry : customToRead.entrySet()) {
             asyncMetadataReadActions.add(
                 remoteGlobalMetadataManager.getAsyncMetadataReadAction(
-                    clusterName,
                     clusterUUID,
                     CUSTOM_METADATA,
                     entry.getKey(),
@@ -929,7 +929,6 @@ public class RemoteClusterStateService implements Closeable {
         if (readCoordinationMetadata) {
             asyncMetadataReadActions.add(
                 remoteGlobalMetadataManager.getAsyncMetadataReadAction(
-                    clusterName,
                     clusterUUID,
                     COORDINATION_METADATA,
                     COORDINATION_METADATA,
@@ -942,7 +941,6 @@ public class RemoteClusterStateService implements Closeable {
         if (readSettingsMetadata) {
             asyncMetadataReadActions.add(
                 remoteGlobalMetadataManager.getAsyncMetadataReadAction(
-                    clusterName,
                     clusterUUID,
                     SETTING_METADATA,
                     SETTING_METADATA,
@@ -955,7 +953,6 @@ public class RemoteClusterStateService implements Closeable {
         if (readTransientSettingsMetadata) {
             asyncMetadataReadActions.add(
                 remoteGlobalMetadataManager.getAsyncMetadataReadAction(
-                    clusterName,
                     clusterUUID,
                     TRANSIENT_SETTING_METADATA,
                     TRANSIENT_SETTING_METADATA,
@@ -968,7 +965,6 @@ public class RemoteClusterStateService implements Closeable {
         if (readTemplatesMetadata) {
             asyncMetadataReadActions.add(
                 remoteGlobalMetadataManager.getAsyncMetadataReadAction(
-                    clusterName,
                     clusterUUID,
                     TEMPLATES_METADATA,
                     TEMPLATES_METADATA,

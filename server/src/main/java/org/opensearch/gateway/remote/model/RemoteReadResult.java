@@ -6,11 +6,15 @@
  * compatible open source license.
  */
 
-package org.opensearch.gateway.remote;
+package org.opensearch.gateway.remote.model;
 
 import org.opensearch.core.xcontent.ToXContent;
 
+/**
+ * Container class for entity read from remote store
+ */
 public class RemoteReadResult {
+
     ToXContent obj;
     String component;
     String componentName;

@@ -6,7 +6,7 @@
  * compatible open source license.
  */
 
-package org.opensearch.gateway.remote;
+package org.opensearch.gateway.remote.model;
 
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.METADATA_NAME_FORMAT;
@@ -20,13 +20,15 @@ import org.opensearch.cluster.metadata.Metadata.Custom;
 import org.opensearch.common.io.Streams;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadata;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadataAttribute;
+import org.opensearch.gateway.remote.RemoteClusterStateUtils;
 import org.opensearch.index.remote.RemoteStoreUtils;
-import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
-import org.opensearch.threadpool.ThreadPool;
 
-public class RemoteCustomMetadata extends AbstractRemoteBlobStoreObject<Custom> {
+/**
+ * Wrapper class for uploading/downloading {@link Custom} to/from remote blob store
+ */
+public class RemoteCustomMetadata extends AbstractRemoteBlobObject<Custom> {
 
     public static final String CUSTOM_METADATA = "custom";
     public static final String CUSTOM_DELIMITER = "--";
@@ -41,17 +43,13 @@ public class RemoteCustomMetadata extends AbstractRemoteBlobStoreObject<Custom> 
     private Custom custom;
     private final String customType;
     private long metadataVersion;
-    private String blobName;
-    private final String clusterUUID;
 
-    public RemoteCustomMetadata(Custom custom, String customType, long metadataVersion, String clusterUUID, BlobStoreTransferService blobStoreTransferService,
-        BlobStoreRepository blobStoreRepository, String clusterName,
-        ThreadPool threadPool) {
-        super(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+    public RemoteCustomMetadata(Custom custom, String customType, long metadataVersion, String clusterUUID,
+        BlobStoreRepository blobStoreRepository) {
+        super(blobStoreRepository, clusterUUID);
         this.custom = custom;
         this.customType = customType;
         this.metadataVersion = metadataVersion;
-        this.clusterUUID = clusterUUID;
         this.customBlobStoreFormat = new ChecksumBlobStoreFormat<>(
             "custom",
             METADATA_NAME_FORMAT,
@@ -59,13 +57,11 @@ public class RemoteCustomMetadata extends AbstractRemoteBlobStoreObject<Custom> 
         );
     }
 
-    public RemoteCustomMetadata(String blobName, String customType, String clusterUUID, BlobStoreTransferService blobStoreTransferService,
-        BlobStoreRepository blobStoreRepository, String clusterName,
-        ThreadPool threadPool) {
-        super(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+    public RemoteCustomMetadata(String blobName, String customType, String clusterUUID,
+        BlobStoreRepository blobStoreRepository) {
+        super(blobStoreRepository, clusterUUID);
         this.blobName = blobName;
         this.customType = customType;
-        this.clusterUUID = clusterUUID;
         this.customBlobStoreFormat = new ChecksumBlobStoreFormat<>(
             "custom",
             METADATA_NAME_FORMAT,
@@ -80,11 +76,6 @@ public class RemoteCustomMetadata extends AbstractRemoteBlobStoreObject<Custom> 
     }
 
     @Override
-    public String getFullBlobName() {
-        return blobName;
-    }
-
-    @Override
     public String generateBlobFileName() {
         // 123456789012_test-cluster/cluster-state/dsgYj10Nkso7/global-metadata/<componentPrefix>__<inverted_metadata_version>__<inverted__timestamp>__
         // <codec_version>
@@ -95,19 +86,13 @@ public class RemoteCustomMetadata extends AbstractRemoteBlobStoreObject<Custom> 
             RemoteStoreUtils.invertLong(System.currentTimeMillis()),
             String.valueOf(GLOBAL_METADATA_CURRENT_CODEC_VERSION)
         );
-        // setting the full blob path with name for future access
-        this.blobName = getBlobPathForUpload().buildAsString() + blobFileName;
+        this.blobFileName = blobFileName;
         return blobFileName;
     }
 
     @Override
     public Custom get() {
         return custom;
-    }
-
-    @Override
-    public String clusterUUID() {
-        return clusterUUID;
     }
 
     @Override

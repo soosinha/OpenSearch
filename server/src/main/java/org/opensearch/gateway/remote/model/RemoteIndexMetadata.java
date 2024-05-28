@@ -6,7 +6,7 @@
  * compatible open source license.
  */
 
-package org.opensearch.gateway.remote;
+package org.opensearch.gateway.remote.model;
 
 
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.METADATA_NAME_PLAIN_FORMAT;
@@ -18,13 +18,15 @@ import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.common.io.Streams;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedIndexMetadata;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadata;
+import org.opensearch.gateway.remote.RemoteClusterStateUtils;
 import org.opensearch.index.remote.RemoteStoreUtils;
-import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
-import org.opensearch.threadpool.ThreadPool;
 
-public class RemoteIndexMetadata extends AbstractRemoteBlobStoreObject<IndexMetadata> {
+/**
+ * Wrapper class for uploading/downloading {@link IndexMetadata} to/from remote blob store
+ */
+public class RemoteIndexMetadata extends AbstractRemoteBlobObject<IndexMetadata> {
 
     public static final int INDEX_METADATA_CURRENT_CODEC_VERSION = 1;
 
@@ -36,38 +38,20 @@ public class RemoteIndexMetadata extends AbstractRemoteBlobStoreObject<IndexMeta
     public static final String INDEX_PATH_TOKEN = "index";
 
     private IndexMetadata indexMetadata;
-    private String blobName;
-    private final String clusterUUID;
 
-    public RemoteIndexMetadata(IndexMetadata indexMetadata, String clusterUUID,
-        BlobStoreTransferService blobStoreTransferService, BlobStoreRepository blobStoreRepository, String clusterName,
-        ThreadPool threadPool) {
-        super(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+    public RemoteIndexMetadata(IndexMetadata indexMetadata, String clusterUUID, BlobStoreRepository blobStoreRepository) {
+        super(blobStoreRepository, clusterUUID);
         this.indexMetadata = indexMetadata;
-        this.clusterUUID = clusterUUID;
     }
 
-    public RemoteIndexMetadata(String blobName, String clusterUUID,
-        BlobStoreTransferService blobStoreTransferService, BlobStoreRepository blobStoreRepository, String clusterName,
-        ThreadPool threadPool) {
-        super(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+    public RemoteIndexMetadata(String blobName, String clusterUUID, BlobStoreRepository blobStoreRepository) {
+        super(blobStoreRepository, clusterUUID);
         this.blobName = blobName;
-        this.clusterUUID = clusterUUID;
     }
 
     @Override
     public IndexMetadata get() {
         return indexMetadata;
-    }
-
-    @Override
-    public String clusterUUID() {
-        return clusterUUID;
-    }
-
-    @Override
-    public String getFullBlobName() {
-        return blobName;
     }
 
     @Override
@@ -85,8 +69,7 @@ public class RemoteIndexMetadata extends AbstractRemoteBlobStoreObject<IndexMeta
             String.valueOf(INDEX_METADATA_CURRENT_CODEC_VERSION) // Keep the codec version at last place only, during reads we read last
             // place to determine codec version.
         );
-        // setting the full blob path with name for future access
-        this.blobName = getBlobPathForUpload().buildAsString() + blobFileName;
+        this.blobFileName = blobFileName;
         return blobFileName;
     }
 

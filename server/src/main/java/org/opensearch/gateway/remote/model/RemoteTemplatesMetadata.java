@@ -6,7 +6,7 @@
  * compatible open source license.
  */
 
-package org.opensearch.gateway.remote;
+package org.opensearch.gateway.remote.model;
 
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.METADATA_NAME_FORMAT;
@@ -19,13 +19,15 @@ import org.opensearch.cluster.metadata.TemplatesMetadata;
 import org.opensearch.common.io.Streams;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadata;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadataAttribute;
+import org.opensearch.gateway.remote.RemoteClusterStateUtils;
 import org.opensearch.index.remote.RemoteStoreUtils;
-import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
-import org.opensearch.threadpool.ThreadPool;
 
-public class RemoteTemplatesMetadata extends AbstractRemoteBlobStoreObject<TemplatesMetadata> {
+/**
+ * Wrapper class for uploading/downloading {@link TemplatesMetadata} to/from remote blob store
+ */
+public class RemoteTemplatesMetadata extends AbstractRemoteBlobObject<TemplatesMetadata> {
 
     public static final String TEMPLATES_METADATA = "templates";
 
@@ -36,21 +38,16 @@ public class RemoteTemplatesMetadata extends AbstractRemoteBlobStoreObject<Templ
     );
     private TemplatesMetadata templatesMetadata;
     private long metadataVersion;
-    private String blobName;
-    private final String clusterUUID;
-    public RemoteTemplatesMetadata(TemplatesMetadata templatesMetadata, long metadataVersion,  String clusterUUID, BlobStoreTransferService blobStoreTransferService, BlobStoreRepository blobStoreRepository, String clusterName,
-        ThreadPool threadPool) {
-        super(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+
+    public RemoteTemplatesMetadata(TemplatesMetadata templatesMetadata, long metadataVersion, String clusterUUID, BlobStoreRepository blobStoreRepository) {
+        super(blobStoreRepository, clusterUUID);
         this.templatesMetadata = templatesMetadata;
         this.metadataVersion = metadataVersion;
-        this.clusterUUID = clusterUUID;
     }
 
-    public RemoteTemplatesMetadata(String blobName, String clusterUUID, BlobStoreTransferService blobStoreTransferService, BlobStoreRepository blobStoreRepository, String clusterName,
-        ThreadPool threadPool) {
-        super(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+    public RemoteTemplatesMetadata(String blobName, String clusterUUID, BlobStoreRepository blobStoreRepository) {
+        super(blobStoreRepository, clusterUUID);
         this.blobName = blobName;
-        this.clusterUUID = clusterUUID;
     }
 
     @Override
@@ -59,13 +56,9 @@ public class RemoteTemplatesMetadata extends AbstractRemoteBlobStoreObject<Templ
     }
 
     @Override
-    public String getFullBlobName() {
-        return blobName;
-    }
-
-    @Override
     public String generateBlobFileName() {
-        // 123456789012_test-cluster/cluster-state/dsgYj10Nkso7/global-metadata/<componentPrefix>__<inverted_metadata_version>__<inverted__timestamp>__<codec_version>
+        // 123456789012_test-cluster/cluster-state/dsgYj10Nkso7/global-metadata/<componentPrefix>__<inverted_metadata_version>__<inverted__timestamp>__
+        // <codec_version>
         String blobFileName = String.join(
             DELIMITER,
             getBlobPathParameters().getFilePrefix(),
@@ -73,8 +66,7 @@ public class RemoteTemplatesMetadata extends AbstractRemoteBlobStoreObject<Templ
             RemoteStoreUtils.invertLong(System.currentTimeMillis()),
             String.valueOf(GLOBAL_METADATA_CURRENT_CODEC_VERSION)
         );
-        // setting the full blob path with name for future access
-        this.blobName = getBlobPathForUpload().buildAsString() + blobFileName;
+        this.blobFileName = blobFileName;
         return blobFileName;
     }
 
@@ -84,13 +76,9 @@ public class RemoteTemplatesMetadata extends AbstractRemoteBlobStoreObject<Templ
     }
 
     @Override
-    public String clusterUUID() {
-        return clusterUUID;
-    }
-
-    @Override
     public InputStream serialize() throws IOException {
-        return TEMPLATES_METADATA_FORMAT.serialize(templatesMetadata, generateBlobFileName(), getCompressor(), RemoteClusterStateUtils.FORMAT_PARAMS).streamInput();
+        return TEMPLATES_METADATA_FORMAT.serialize(templatesMetadata, generateBlobFileName(), getCompressor(), RemoteClusterStateUtils.FORMAT_PARAMS)
+            .streamInput();
     }
 
     @Override

@@ -6,7 +6,7 @@
  * compatible open source license.
  */
 
-package org.opensearch.gateway.remote;
+package org.opensearch.gateway.remote.model;
 
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
 
@@ -14,15 +14,18 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 import org.opensearch.common.io.Streams;
+import org.opensearch.gateway.remote.ClusterMetadataManifest;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadata;
 import org.opensearch.gateway.remote.ClusterMetadataManifest.UploadedMetadataAttribute;
+import org.opensearch.gateway.remote.RemoteClusterStateUtils;
 import org.opensearch.index.remote.RemoteStoreUtils;
-import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
-import org.opensearch.threadpool.ThreadPool;
 
-public class RemoteClusterMetadataManifest extends AbstractRemoteBlobStoreObject<ClusterMetadataManifest> {
+/**
+ * Wrapper class for uploading/downloading {@link ClusterMetadataManifest} to/from remote blob store
+ */
+public class RemoteClusterMetadataManifest extends AbstractRemoteBlobObject<ClusterMetadataManifest> {
 
     public static final String MANIFEST_PATH_TOKEN = "manifest";
     public static final int SPLITTED_MANIFEST_FILE_LENGTH = 6;
@@ -52,33 +55,22 @@ public class RemoteClusterMetadataManifest extends AbstractRemoteBlobStoreObject
     );
 
     private ClusterMetadataManifest clusterMetadataManifest;
-    private String blobName;
-    private final String clusterUUID;
 
-    public RemoteClusterMetadataManifest(ClusterMetadataManifest clusterMetadataManifest, String clusterUUID, BlobStoreTransferService blobStoreTransferService,
-        BlobStoreRepository blobStoreRepository, String clusterName,
-        ThreadPool threadPool) {
-        super(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+    public RemoteClusterMetadataManifest(ClusterMetadataManifest clusterMetadataManifest, String clusterUUID,
+        BlobStoreRepository blobStoreRepository) {
+        super(blobStoreRepository, clusterUUID);
         this.clusterMetadataManifest = clusterMetadataManifest;
-        this.clusterUUID = clusterUUID;
     }
 
-    public RemoteClusterMetadataManifest(String blobName, String clusterUUID, BlobStoreTransferService blobStoreTransferService,
-        BlobStoreRepository blobStoreRepository, String clusterName,
-        ThreadPool threadPool) {
-        super(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+    public RemoteClusterMetadataManifest(String blobName, String clusterUUID,
+        BlobStoreRepository blobStoreRepository) {
+        super(blobStoreRepository, clusterUUID);
         this.blobName = blobName;
-        this.clusterUUID = clusterUUID;
     }
 
     @Override
     public BlobPathParameters getBlobPathParameters() {
         return new BlobPathParameters(List.of(MANIFEST_PATH_TOKEN), MANIFEST_FILE_PREFIX);
-    }
-
-    @Override
-    public String getFullBlobName() {
-        return blobName;
     }
 
     @Override
@@ -95,8 +87,7 @@ public class RemoteClusterMetadataManifest extends AbstractRemoteBlobStoreObject
             String.valueOf(clusterMetadataManifest.getCodecVersion()) // Keep the codec version at last place only, during read we reads last place to
             // determine codec version.
         );
-        // setting the full blob path with name for future access
-        this.blobName = getBlobPathForUpload().buildAsString() + blobFileName;
+        this.blobFileName = blobFileName;
         return blobFileName;
     }
 
@@ -108,11 +99,6 @@ public class RemoteClusterMetadataManifest extends AbstractRemoteBlobStoreObject
     @Override
     public ClusterMetadataManifest get() {
         return clusterMetadataManifest;
-    }
-
-    @Override
-    public String clusterUUID() {
-        return clusterUUID;
     }
 
     @Override

@@ -12,7 +12,7 @@ import static java.util.Objects.requireNonNull;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.METADATA_NAME_FORMAT;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.RemoteStateTransferException;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.getCusterMetadataBasePath;
-import static org.opensearch.gateway.remote.RemoteTransientSettingsMetadata.TRANSIENT_SETTING_METADATA;
+import static org.opensearch.gateway.remote.model.RemoteTransientSettingsMetadata.TRANSIENT_SETTING_METADATA;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -34,6 +34,18 @@ import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.core.xcontent.ToXContent;
+import org.opensearch.gateway.remote.model.AbstractRemoteBlobObject;
+import org.opensearch.gateway.remote.model.RemoteCoordinationMetadata;
+import org.opensearch.gateway.remote.model.RemoteCoordinationMetadataBlobStore;
+import org.opensearch.gateway.remote.model.RemoteCustomMetadata;
+import org.opensearch.gateway.remote.model.RemoteCustomMetadataBlobStore;
+import org.opensearch.gateway.remote.model.RemotePersistentSettingsBlobStore;
+import org.opensearch.gateway.remote.model.RemotePersistentSettingsMetadata;
+import org.opensearch.gateway.remote.model.RemoteReadResult;
+import org.opensearch.gateway.remote.model.RemoteTemplatesMetadata;
+import org.opensearch.gateway.remote.model.RemoteTemplatesMetadataBlobStore;
+import org.opensearch.gateway.remote.model.RemoteTransientSettingsBlobStore;
+import org.opensearch.gateway.remote.model.RemoteTransientSettingsMetadata;
 import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
@@ -89,6 +101,11 @@ public class RemoteGlobalMetadataManager {
     private volatile TimeValue globalMetadataUploadTimeout;
     private final BlobStoreTransferService blobStoreTransferService;
     private final String clusterName;
+    private final RemoteCoordinationMetadataBlobStore coordinationMetadataBlobStore;
+    private final RemoteTransientSettingsBlobStore transientSettingsBlobStore;
+    private final RemotePersistentSettingsBlobStore persistentSettingsBlobStore;
+    private final RemoteTemplatesMetadataBlobStore templatesMetadataBlobStore;
+    private final RemoteCustomMetadataBlobStore customMetadataBlobStore;
 
     RemoteGlobalMetadataManager(BlobStoreRepository blobStoreRepository, ClusterSettings clusterSettings, ThreadPool threadPool, BlobStoreTransferService blobStoreTransferService,
         String clusterName) {
@@ -97,6 +114,11 @@ public class RemoteGlobalMetadataManager {
         this.threadPool = threadPool;
         this.blobStoreTransferService = blobStoreTransferService;
         this.clusterName = clusterName;
+        this.coordinationMetadataBlobStore = new RemoteCoordinationMetadataBlobStore(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+        this.transientSettingsBlobStore = new RemoteTransientSettingsBlobStore(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+        this.persistentSettingsBlobStore = new RemotePersistentSettingsBlobStore(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+        this.templatesMetadataBlobStore = new RemoteTemplatesMetadataBlobStore(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+        this.customMetadataBlobStore = new RemoteCustomMetadataBlobStore(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
         clusterSettings.addSettingsUpdateConsumer(GLOBAL_METADATA_UPLOAD_TIMEOUT_SETTING, this::setGlobalMetadataUploadTimeout);
     }
 
@@ -110,40 +132,66 @@ public class RemoteGlobalMetadataManager {
         LatchedActionListener<ClusterMetadataManifest.UploadedMetadata> latchedActionListener,
         String customType
     ) {
-        AbstractRemoteBlobStoreObject remoteBlobStoreObject = getRemoteObject(objectToUpload, metadataVersion, clusterUUID, customType);
-        ActionListener<Void> completionListener = ActionListener.wrap(
+        if (objectToUpload instanceof CoordinationMetadata) {
+            RemoteCoordinationMetadata remoteCoordinationMetadata = new RemoteCoordinationMetadata((CoordinationMetadata) objectToUpload, metadataVersion, clusterUUID,
+                blobStoreRepository);
+            return () -> coordinationMetadataBlobStore.writeAsync(remoteCoordinationMetadata, getActionListener(remoteCoordinationMetadata, latchedActionListener));
+        } else if (objectToUpload instanceof  Settings) {
+            if (customType != null && customType.equals(TRANSIENT_SETTING_METADATA)) {
+                RemoteTransientSettingsMetadata remoteTransientSettingsMetadata = new RemoteTransientSettingsMetadata((Settings) objectToUpload, metadataVersion, clusterUUID,
+                    blobStoreRepository);
+                return () -> transientSettingsBlobStore.writeAsync(remoteTransientSettingsMetadata, getActionListener(remoteTransientSettingsMetadata, latchedActionListener));
+            }
+            RemotePersistentSettingsMetadata remotePersistentSettingsMetadata = new RemotePersistentSettingsMetadata((Settings) objectToUpload, metadataVersion, clusterUUID,
+                blobStoreRepository);
+            return () -> persistentSettingsBlobStore.writeAsync(remotePersistentSettingsMetadata, getActionListener(remotePersistentSettingsMetadata, latchedActionListener));
+        } else if (objectToUpload instanceof TemplatesMetadata) {
+            RemoteTemplatesMetadata remoteTemplatesMetadata = new RemoteTemplatesMetadata((TemplatesMetadata) objectToUpload, metadataVersion, clusterUUID,
+                blobStoreRepository);
+            return () -> templatesMetadataBlobStore.writeAsync(remoteTemplatesMetadata, getActionListener(remoteTemplatesMetadata, latchedActionListener));
+        } else if (objectToUpload instanceof Custom) {
+            RemoteCustomMetadata remoteCustomMetadata = new RemoteCustomMetadata((Custom) objectToUpload, customType ,metadataVersion, clusterUUID,
+                blobStoreRepository);
+            return () -> customMetadataBlobStore.writeAsync(remoteCustomMetadata, getActionListener(remoteCustomMetadata, latchedActionListener));
+        }
+        throw new RemoteStateTransferException("Remote object cannot be created for " + objectToUpload.getClass());
+    }
+
+    private ActionListener<Void> getActionListener(AbstractRemoteBlobObject remoteBlobStoreObject, LatchedActionListener<ClusterMetadataManifest.UploadedMetadata> latchedActionListener) {
+        return ActionListener.wrap(
             resp -> latchedActionListener.onResponse(
                 remoteBlobStoreObject.getUploadedMetadata()
             ),
             ex -> latchedActionListener.onFailure(new RemoteStateTransferException("Upload failed", ex))
         );
-        return () -> remoteBlobStoreObject.writeAsync(completionListener);
     }
 
     CheckedRunnable<IOException> getAsyncMetadataReadAction(
-        String clusterName,
         String clusterUUID,
         String component,
         String componentName,
         String uploadFilename,
         LatchedActionListener<RemoteReadResult> listener
     ) {
-        AbstractRemoteBlobStoreObject remoteBlobStoreObject;
+        ActionListener actionListener = ActionListener.wrap(response -> listener.onResponse(new RemoteReadResult((ToXContent) response, component, componentName)), listener::onFailure);
         if (component.equals(COORDINATION_METADATA)) {
-            remoteBlobStoreObject = new RemoteCoordinationMetadata(uploadFilename, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+            RemoteCoordinationMetadata remoteBlobStoreObject = new RemoteCoordinationMetadata(uploadFilename, clusterUUID, blobStoreRepository);
+            return () -> coordinationMetadataBlobStore.readAsync(remoteBlobStoreObject, actionListener);
         } else if (component.equals(TEMPLATES_METADATA)) {
-            remoteBlobStoreObject = new RemoteTemplatesMetadata(uploadFilename, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+            RemoteTemplatesMetadata remoteBlobStoreObject = new RemoteTemplatesMetadata(uploadFilename, clusterUUID, blobStoreRepository);
+            return () -> templatesMetadataBlobStore.readAsync(remoteBlobStoreObject, actionListener);
         } else if (component.equals(SETTING_METADATA)) {
-            remoteBlobStoreObject = new RemotePersistentSettingsMetadata(uploadFilename, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+            RemotePersistentSettingsMetadata remoteBlobStoreObject = new RemotePersistentSettingsMetadata(uploadFilename, clusterUUID, blobStoreRepository);
+            return () -> persistentSettingsBlobStore.readAsync(remoteBlobStoreObject, actionListener);
         } else if (component.equals(TRANSIENT_SETTING_METADATA)) {
-            remoteBlobStoreObject = new RemoteTransientSettingsMetadata(uploadFilename, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+            RemoteTransientSettingsMetadata remoteBlobStoreObject = new RemoteTransientSettingsMetadata(uploadFilename, clusterUUID, blobStoreRepository);
+            return () -> transientSettingsBlobStore.readAsync(remoteBlobStoreObject, actionListener);
         } else if (component.equals(CUSTOM_METADATA)) {
-            remoteBlobStoreObject = new RemoteCustomMetadata(uploadFilename, componentName, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+            RemoteCustomMetadata remoteBlobStoreObject = new RemoteCustomMetadata(uploadFilename, componentName, clusterUUID, blobStoreRepository);
+            return () -> customMetadataBlobStore.readAsync(remoteBlobStoreObject, actionListener);
         } else {
             throw new RemoteStateTransferException("Unknown component " + componentName);
         }
-        ActionListener actionListener = ActionListener.wrap(response -> listener.onResponse(new RemoteReadResult((ToXContent) response, component, componentName)), listener::onFailure);
-        return () -> remoteBlobStoreObject.readAsync(actionListener);
     }
 
     Metadata getGlobalMetadata(String clusterName, String clusterUUID, ClusterMetadataManifest clusterMetadataManifest) {
@@ -201,8 +249,8 @@ public class RemoteGlobalMetadataManager {
             // Fetch Coordination metadata
             if (coordinationMetadataFileName != null) {
                 RemoteCoordinationMetadata remoteCoordinationMetadata = new RemoteCoordinationMetadata(coordinationMetadataFileName, clusterUUID,
-                    blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
-                return remoteCoordinationMetadata.read();
+                    blobStoreRepository);
+                return coordinationMetadataBlobStore.read(remoteCoordinationMetadata);
             } else {
                 return CoordinationMetadata.EMPTY_METADATA;
             }
@@ -219,8 +267,8 @@ public class RemoteGlobalMetadataManager {
             // Fetch Settings metadata
             if (settingsMetadataFileName != null) {
                 RemotePersistentSettingsMetadata remotePersistentSettingsMetadata = new RemotePersistentSettingsMetadata(settingsMetadataFileName, clusterUUID,
-                    blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
-                return remotePersistentSettingsMetadata.read();
+                    blobStoreRepository);
+                return persistentSettingsBlobStore.read(remotePersistentSettingsMetadata);
             } else {
                 return Settings.EMPTY;
             }
@@ -237,8 +285,8 @@ public class RemoteGlobalMetadataManager {
             // Fetch Templates metadata
             if (templatesMetadataFileName != null) {
                 RemoteTemplatesMetadata remoteTemplatesMetadata = new RemoteTemplatesMetadata(templatesMetadataFileName, clusterUUID,
-                    blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
-                return remoteTemplatesMetadata.read();
+                    blobStoreRepository);
+                return templatesMetadataBlobStore.read(remoteTemplatesMetadata);
             } else {
                 return TemplatesMetadata.EMPTY_METADATA;
             }
@@ -254,8 +302,8 @@ public class RemoteGlobalMetadataManager {
         requireNonNull(customMetadataFileName);
         try {
             // Fetch Custom metadata
-            RemoteCustomMetadata remoteCustomMetadata = new RemoteCustomMetadata(customMetadataFileName, custom, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
-            return remoteCustomMetadata.read();
+            RemoteCustomMetadata remoteCustomMetadata = new RemoteCustomMetadata(customMetadataFileName, custom, clusterUUID, blobStoreRepository);
+            return customMetadataBlobStore.read(remoteCustomMetadata);
         } catch (IOException e) {
             throw new IllegalStateException(
                 String.format(Locale.ROOT, "Error while downloading Custom Metadata - %s", customMetadataFileName),
@@ -287,27 +335,6 @@ public class RemoteGlobalMetadataManager {
             }
         }
         return updatedCustom;
-    }
-
-    private AbstractRemoteBlobStoreObject getRemoteObject(Object object, long metadataVersion, String clusterUUID, String customType) {
-        if (object instanceof CoordinationMetadata) {
-            return new RemoteCoordinationMetadata((CoordinationMetadata) object, metadataVersion, clusterUUID, blobStoreTransferService,
-                blobStoreRepository, clusterName, threadPool);
-        } else if (object instanceof  Settings) {
-            if (customType != null && customType.equals(TRANSIENT_SETTING_METADATA)) {
-                return new RemoteTransientSettingsMetadata((Settings) object, metadataVersion, clusterUUID, blobStoreTransferService,
-                    blobStoreRepository, clusterName, threadPool);
-            }
-            return new RemotePersistentSettingsMetadata((Settings) object, metadataVersion, clusterUUID, blobStoreTransferService,
-                blobStoreRepository, clusterName, threadPool);
-        } else if (object instanceof TemplatesMetadata) {
-            return new RemoteTemplatesMetadata((TemplatesMetadata) object, metadataVersion, clusterUUID, blobStoreTransferService,
-                blobStoreRepository, clusterName, threadPool);
-        } else if (object instanceof Custom) {
-            return new RemoteCustomMetadata((Custom) object, customType ,metadataVersion, clusterUUID, blobStoreTransferService,
-                blobStoreRepository, clusterName, threadPool);
-        }
-        throw new RemoteStateTransferException("Remote object cannot be created for " + object.getClass());
     }
 
     private BlobContainer globalMetadataContainer(String clusterName, String clusterUUID) {

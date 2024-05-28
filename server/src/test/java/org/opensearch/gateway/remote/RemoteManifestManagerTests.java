@@ -41,7 +41,7 @@ public class RemoteManifestManagerTests extends OpenSearchTestCase {
     public void setup() {
         clusterSettings = new ClusterSettings(Settings.EMPTY, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
         blobStoreRepository = mock(BlobStoreRepository.class);
-        remoteManifestManager = new RemoteManifestManager(blobStoreTransferService, blobStoreRepository, clusterSettings, "test-node-id", new TestThreadPool("test"));
+        remoteManifestManager = new RemoteManifestManager(blobStoreTransferService, blobStoreRepository, clusterSettings, "test-node-id", new TestThreadPool("test"), "test-cluster-name");
         blobStoreTransferService = mock(BlobStoreTransferService.class);
         blobStore = mock(BlobStore.class);
         when(blobStoreRepository.blobStore()).thenReturn(blobStore);

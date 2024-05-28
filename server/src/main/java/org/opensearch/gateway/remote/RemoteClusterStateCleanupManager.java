@@ -24,11 +24,9 @@ import org.opensearch.common.util.concurrent.AbstractAsyncTask;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.threadpool.ThreadPool;
-import org.opensearch.cluster.routing.remote.RemoteRoutingTableService;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.sql.Blob;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -36,10 +34,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static org.opensearch.gateway.remote.RemoteIndexMetadata.INDEX_METADATA_FORMAT;
-import static org.opensearch.gateway.remote.RemoteIndexMetadata.INDEX_PATH_TOKEN;
-import static org.opensearch.gateway.remote.RemoteClusterMetadataManifest.MANIFEST_FILE_PREFIX;
-import static org.opensearch.gateway.remote.RemoteClusterMetadataManifest.MANIFEST_PATH_TOKEN;
+import static org.opensearch.gateway.remote.model.RemoteClusterMetadataManifest.MANIFEST_FILE_PREFIX;
 
 /**
  * A Manager which provides APIs to clean up stale cluster state files and runs an async stale cleanup task

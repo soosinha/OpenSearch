@@ -16,6 +16,12 @@ import org.opensearch.common.CheckedRunnable;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.core.xcontent.ToXContent;
 import org.opensearch.gateway.remote.RemoteClusterStateUtils.RemoteStateTransferException;
+import org.opensearch.gateway.remote.model.AbstractRemoteBlobObject;
+import org.opensearch.gateway.remote.model.RemoteClusterBlocks;
+import org.opensearch.gateway.remote.model.RemoteClusterBlocksBlobStore;
+import org.opensearch.gateway.remote.model.RemoteDiscoveryNodes;
+import org.opensearch.gateway.remote.model.RemoteDiscoveryNodesBlobStore;
+import org.opensearch.gateway.remote.model.RemoteReadResult;
 import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.threadpool.ThreadPool;
@@ -26,18 +32,21 @@ public class RemoteClusterStateAttributesManager {
     public static final String CLUSTER_STATE_ATTRIBUTE = "cluster_state_attribute";
     public static final String DISCOVERY_NODES = "nodes";
     public static final String CLUSTER_BLOCKS = "blocks";
-    public static final String CUSTOM_PREFIX = "custom";
     public static final int CLUSTER_STATE_ATTRIBUTES_CURRENT_CODEC_VERSION = 1;
     private final BlobStoreTransferService blobStoreTransferService;
     private final BlobStoreRepository blobStoreRepository;
     private final ThreadPool threadPool;
     private final String clusterName;
+    private final RemoteClusterBlocksBlobStore clusterBlocksBlobStore;
+    private final RemoteDiscoveryNodesBlobStore discoveryNodesBlobStore;
 
     RemoteClusterStateAttributesManager(BlobStoreTransferService blobStoreTransferService, BlobStoreRepository repository, ThreadPool threadPool, String clusterName) {
         this.blobStoreTransferService = blobStoreTransferService;
         this.blobStoreRepository = repository;
         this.threadPool = threadPool;
         this.clusterName = clusterName;
+        this.clusterBlocksBlobStore = new RemoteClusterBlocksBlobStore(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+        this.discoveryNodesBlobStore = new RemoteDiscoveryNodesBlobStore(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
     }
 
     /**
@@ -49,24 +58,24 @@ public class RemoteClusterStateAttributesManager {
         ToXContent componentData,
         LatchedActionListener<ClusterMetadataManifest.UploadedMetadata> latchedActionListener
     ) {
-        AbstractRemoteBlobStoreObject remoteObject = getRemoteObject(componentData, clusterState.version(), clusterState.metadata().clusterUUID());
-        ActionListener<Void> completionListener = ActionListener.wrap(
+        if (componentData instanceof DiscoveryNodes) {
+            RemoteDiscoveryNodes remoteObject = new RemoteDiscoveryNodes((DiscoveryNodes)componentData, clusterState.version(), clusterState.metadata().clusterUUID(), blobStoreRepository);
+            return () -> discoveryNodesBlobStore.writeAsync(remoteObject, getActionListener(component, remoteObject, latchedActionListener));
+        } else if (componentData instanceof ClusterBlocks) {
+            RemoteClusterBlocks remoteObject = new RemoteClusterBlocks((ClusterBlocks) componentData, clusterState.version(), clusterState.metadata().clusterUUID(), blobStoreRepository);
+            return () -> clusterBlocksBlobStore.writeAsync(remoteObject, getActionListener(component, remoteObject, latchedActionListener));
+        } else {
+            throw new RemoteStateTransferException("Remote object not found for "+ componentData.getClass());
+        }
+    }
+
+    private ActionListener<Void> getActionListener(String component, AbstractRemoteBlobObject remoteObject, LatchedActionListener<ClusterMetadataManifest.UploadedMetadata> latchedActionListener) {
+        return ActionListener.wrap(
             resp -> latchedActionListener.onResponse(
                 remoteObject.getUploadedMetadata()
             ),
             ex -> latchedActionListener.onFailure(new RemoteClusterStateUtils.RemoteStateTransferException(component, ex))
         );
-        return () -> remoteObject.writeAsync(completionListener);
-    }
-
-    private AbstractRemoteBlobStoreObject getRemoteObject(ToXContent componentData, long stateVersion, String clusterUUID) {
-        if (componentData instanceof DiscoveryNodes) {
-            return new RemoteDiscoveryNodes((DiscoveryNodes)componentData, stateVersion, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
-        } else if (componentData instanceof ClusterBlocks) {
-            return new RemoteClusterBlocks((ClusterBlocks) componentData, stateVersion, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
-        } else {
-            throw new RemoteStateTransferException("Remote object not found for "+ componentData.getClass());
-        }
     }
 
     public CheckedRunnable<IOException> getAsyncMetadataReadAction(
@@ -75,19 +84,15 @@ public class RemoteClusterStateAttributesManager {
         String uploadedFilename,
         LatchedActionListener<RemoteReadResult> listener
     ) {
-        AbstractRemoteBlobStoreObject remoteObject = getRemoteObject(component, uploadedFilename, clusterUUID);
         ActionListener actionListener = ActionListener.wrap(response -> listener.onResponse(new RemoteReadResult((ToXContent) response, CLUSTER_STATE_ATTRIBUTE, component)), listener::onFailure);
-        return () -> remoteObject.readAsync(actionListener);
-    }
-
-    private AbstractRemoteBlobStoreObject getRemoteObject(String component, String blobName, String clusterUUID) {
         if (component.equals(RemoteDiscoveryNodes.DISCOVERY_NODES)) {
-            return new RemoteDiscoveryNodes(blobName, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+            RemoteDiscoveryNodes remoteDiscoveryNodes = new RemoteDiscoveryNodes(uploadedFilename, clusterUUID, blobStoreRepository);
+            return () -> discoveryNodesBlobStore.readAsync(remoteDiscoveryNodes, actionListener);
         } else if (component.equals(RemoteClusterBlocks.CLUSTER_BLOCKS)) {
-            return new RemoteClusterBlocks(blobName, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+            RemoteClusterBlocks remoteClusterBlocks = new RemoteClusterBlocks(uploadedFilename, clusterUUID, blobStoreRepository);
+            return () -> clusterBlocksBlobStore.readAsync(remoteClusterBlocks, actionListener);
         }  else {
             throw new RemoteStateTransferException("Remote object not found for "+ component);
         }
     }
-
 }

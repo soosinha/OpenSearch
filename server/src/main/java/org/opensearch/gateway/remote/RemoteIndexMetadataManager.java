@@ -9,7 +9,7 @@
 package org.opensearch.gateway.remote;
 
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.RemoteStateTransferException;
-import static org.opensearch.gateway.remote.RemoteIndexMetadata.INDEX_PATH_TOKEN;
+import static org.opensearch.gateway.remote.model.RemoteIndexMetadata.INDEX_PATH_TOKEN;
 
 import java.io.IOException;
 import java.util.Locale;
@@ -20,6 +20,9 @@ import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.Setting;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.core.action.ActionListener;
+import org.opensearch.gateway.remote.model.RemoteIndexMetadata;
+import org.opensearch.gateway.remote.model.RemoteIndexMetadataBlobStore;
+import org.opensearch.gateway.remote.model.RemoteReadResult;
 import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
 import org.opensearch.threadpool.ThreadPool;
@@ -39,12 +42,14 @@ public class RemoteIndexMetadataManager {
     private final ThreadPool threadPool;
 
     private final BlobStoreTransferService blobStoreTransferService;
+    private final RemoteIndexMetadataBlobStore indexMetadataBlobStore;
 
     private volatile TimeValue indexMetadataUploadTimeout;
     private final String clusterName;
 
     public RemoteIndexMetadataManager(BlobStoreRepository blobStoreRepository, ClusterSettings clusterSettings, ThreadPool threadPool, String clusterName,
         BlobStoreTransferService blobStoreTransferService) {
+        indexMetadataBlobStore = new RemoteIndexMetadataBlobStore(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
         this.blobStoreRepository = blobStoreRepository;
         this.indexMetadataUploadTimeout = clusterSettings.get(INDEX_METADATA_UPLOAD_TIMEOUT_SETTING);
         this.threadPool = threadPool;
@@ -61,14 +66,14 @@ public class RemoteIndexMetadataManager {
      */
     CheckedRunnable<IOException> getIndexMetadataAsyncAction(IndexMetadata indexMetadata, String clusterUUID,
         LatchedActionListener<ClusterMetadataManifest.UploadedMetadata> latchedActionListener) {
-        RemoteIndexMetadata remoteIndexMetadata = new RemoteIndexMetadata(indexMetadata, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+        RemoteIndexMetadata remoteIndexMetadata = new RemoteIndexMetadata(indexMetadata, clusterUUID, blobStoreRepository);
         ActionListener<Void> completionListener = ActionListener.wrap(
             resp -> latchedActionListener.onResponse(
                 remoteIndexMetadata.getUploadedMetadata()
             ),
             ex -> latchedActionListener.onFailure(new RemoteStateTransferException(indexMetadata.getIndex().getName(), ex))
         );
-        return () -> remoteIndexMetadata.writeAsync(completionListener);
+        return () -> indexMetadataBlobStore.writeAsync(remoteIndexMetadata, completionListener);
     }
 
     CheckedRunnable<IOException> getAsyncIndexMetadataReadAction(
@@ -76,11 +81,11 @@ public class RemoteIndexMetadataManager {
         String uploadedFilename,
         LatchedActionListener<RemoteReadResult> latchedActionListener
     ) {
-        RemoteIndexMetadata remoteIndexMetadata = new RemoteIndexMetadata(uploadedFilename, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+        RemoteIndexMetadata remoteIndexMetadata = new RemoteIndexMetadata(uploadedFilename, clusterUUID, blobStoreRepository);
         ActionListener<IndexMetadata> actionListener = ActionListener.wrap(
             response -> latchedActionListener.onResponse(new RemoteReadResult(response, INDEX_PATH_TOKEN, response.getIndexName())),
             latchedActionListener::onFailure);
-        return () -> remoteIndexMetadata.readAsync(actionListener);
+        return () -> indexMetadataBlobStore.readAsync(remoteIndexMetadata, actionListener);
     }
 
     /**
@@ -93,9 +98,9 @@ public class RemoteIndexMetadataManager {
         ClusterMetadataManifest.UploadedIndexMetadata uploadedIndexMetadata, String clusterUUID, int manifestCodecVersion
     ) {
         RemoteIndexMetadata remoteIndexMetadata = new RemoteIndexMetadata(RemoteClusterStateUtils.getFormattedFileName(
-            uploadedIndexMetadata.getUploadedFilename(), manifestCodecVersion), clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+            uploadedIndexMetadata.getUploadedFilename(), manifestCodecVersion), clusterUUID, blobStoreRepository);
         try {
-            return remoteIndexMetadata.read();
+            return indexMetadataBlobStore.read(remoteIndexMetadata);
         } catch (IOException e) {
             throw new IllegalStateException(
                 String.format(Locale.ROOT, "Error while downloading IndexMetadata - %s", uploadedIndexMetadata.getUploadedFilename()),

@@ -20,10 +20,11 @@ import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.Setting;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.core.action.ActionListener;
+import org.opensearch.gateway.remote.model.RemoteClusterMetadataManifest;
+import org.opensearch.gateway.remote.model.RemoteClusterMetadataManifestBlobStore;
 import org.opensearch.index.remote.RemoteStoreUtils;
 import org.opensearch.index.translog.transfer.BlobStoreTransferService;
 import org.opensearch.repositories.blobstore.BlobStoreRepository;
-import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -38,7 +39,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.opensearch.threadpool.ThreadPool;
 
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
-import static org.opensearch.gateway.remote.RemoteClusterStateUtils.FORMAT_PARAMS;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.RemoteStateTransferException;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.getCusterMetadataBasePath;
 
@@ -58,14 +58,16 @@ public class RemoteManifestManager {
     private volatile TimeValue metadataManifestUploadTimeout;
     private final String nodeId;
     private final ThreadPool threadPool;
+    private final RemoteClusterMetadataManifestBlobStore manifestBlobStore;
     private static final Logger logger = LogManager.getLogger(RemoteManifestManager.class);
 
-    RemoteManifestManager(BlobStoreTransferService blobStoreTransferService, BlobStoreRepository blobStoreRepository, ClusterSettings clusterSettings, String nodeId, ThreadPool threadPool) {
+    RemoteManifestManager(BlobStoreTransferService blobStoreTransferService, BlobStoreRepository blobStoreRepository, ClusterSettings clusterSettings, String nodeId, ThreadPool threadPool, String clusterName) {
         this.blobStoreTransferService = blobStoreTransferService;
         this.blobStoreRepository = blobStoreRepository;
         this.metadataManifestUploadTimeout = clusterSettings.get(METADATA_MANIFEST_UPLOAD_TIMEOUT_SETTING);
         this.nodeId = nodeId;
         this.threadPool = threadPool;
+        manifestBlobStore = new RemoteClusterMetadataManifestBlobStore(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
         clusterSettings.addSettingsUpdateConsumer(METADATA_MANIFEST_UPLOAD_TIMEOUT_SETTING, this::setMetadataManifestUploadTimeout);
     }
 
@@ -124,8 +126,8 @@ public class RemoteManifestManager {
             logger.trace(String.format(Locale.ROOT, "Manifest file uploaded successfully."));
         }, ex -> { exceptionReference.set(ex); }), latch);
 
-        RemoteClusterMetadataManifest remoteClusterMetadataManifest = new RemoteClusterMetadataManifest(uploadManifest, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
-        remoteClusterMetadataManifest.writeAsync(completionListener);
+        RemoteClusterMetadataManifest remoteClusterMetadataManifest = new RemoteClusterMetadataManifest(uploadManifest, clusterUUID, blobStoreRepository);
+        manifestBlobStore.writeAsync(remoteClusterMetadataManifest, completionListener);
 
         try {
             if (latch.await(getMetadataManifestUploadTimeout().millis(), TimeUnit.MILLISECONDS) == false) {
@@ -188,8 +190,8 @@ public class RemoteManifestManager {
         throws IllegalStateException {
         try {
             String fullBlobName = getManifestFolderPath(clusterName, clusterUUID).buildAsString() + filename;
-            RemoteClusterMetadataManifest remoteClusterMetadataManifest = new RemoteClusterMetadataManifest(fullBlobName, clusterUUID, blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
-            return remoteClusterMetadataManifest.read();
+            RemoteClusterMetadataManifest remoteClusterMetadataManifest = new RemoteClusterMetadataManifest(fullBlobName, clusterUUID, blobStoreRepository);
+            return manifestBlobStore.read(remoteClusterMetadataManifest);
         } catch (IOException e) {
             throw new IllegalStateException(String.format(Locale.ROOT, "Error while downloading cluster metadata - %s", filename), e);
         }
