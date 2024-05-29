@@ -79,7 +79,7 @@ public class RemoteClusterMetadataManifest extends AbstractRemoteBlobObject<Clus
         // <codec_version>
         String blobFileName = String.join(
             DELIMITER,
-            MANIFEST_PATH_TOKEN,
+            MANIFEST_FILE_PREFIX,
             RemoteStoreUtils.invertLong(clusterMetadataManifest.getClusterTerm()),
             RemoteStoreUtils.invertLong(clusterMetadataManifest.getStateVersion()),
             (clusterMetadataManifest.isCommitted() ? "C" : "P"), // C for committed and P for published
@@ -93,6 +93,7 @@ public class RemoteClusterMetadataManifest extends AbstractRemoteBlobObject<Clus
 
     @Override
     public UploadedMetadata getUploadedMetadata() {
+        assert blobName != null;
         return new UploadedMetadataAttribute(MANIFEST_PATH_TOKEN, blobName);
     }
 

@@ -41,6 +41,9 @@ public abstract class AbstractRemoteBlobObject<T> implements RemoteObject<T> {
 
     public String getBlobFileName() {
         if (blobFileName == null) {
+            if (blobName == null) {
+                return null;
+            }
             String[] pathTokens = blobName.split(PATH_DELIMITER);
             blobFileName = pathTokens[pathTokens.length - 1];
         }
@@ -55,7 +58,7 @@ public abstract class AbstractRemoteBlobObject<T> implements RemoteObject<T> {
 
     public abstract UploadedMetadata getUploadedMetadata();
 
-    protected void setFullBlobName(BlobPath blobPath) {
+    public void setFullBlobName(BlobPath blobPath) {
         this.blobName = blobPath.buildAsString() + blobFileName;
     }
 
