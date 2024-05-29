@@ -18,9 +18,9 @@ import org.opensearch.core.action.ActionListener;
  */
 public interface RemoteObjectStore<T, U extends RemoteObject<T>> {
 
-    public void writeAsync(RemoteObject<T> obj, ActionListener<Void> listener);
+    public void writeAsync(U obj, ActionListener<Void> listener);
 
-    public T read(RemoteObject<T> obj) throws IOException;
+    public T read(U obj) throws IOException;
 
-    public void readAsync(RemoteObject<T> obj, ActionListener<T> listener);
+    public void readAsync(U obj, ActionListener<T> listener);
 }
