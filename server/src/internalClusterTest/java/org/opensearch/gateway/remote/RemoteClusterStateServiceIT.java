@@ -10,7 +10,6 @@ package org.opensearch.gateway.remote;
 
 import org.opensearch.action.admin.cluster.node.stats.NodesStatsRequest;
 import org.opensearch.action.admin.cluster.node.stats.NodesStatsResponse;
-import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.common.blobstore.BlobPath;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.discovery.DiscoveryStats;
@@ -23,14 +22,11 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.opensearch.cluster.metadata.IndexMetadata.SETTING_NUMBER_OF_REPLICAS;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING;
 import static org.opensearch.gateway.remote.RemoteClusterStateService.REMOTE_CLUSTER_STATE_ENABLED_SETTING;
-import static org.opensearch.gateway.remote.RemoteClusterStateService.RETAINED_MANIFESTS;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.DELIMITER;
 import static org.opensearch.gateway.remote.RemoteClusterStateUtils.METADATA_FILE_PREFIX;
 import static org.opensearch.gateway.remote.RemoteGlobalMetadataManager.COORDINATION_METADATA;
@@ -48,123 +44,12 @@ public class RemoteClusterStateServiceIT extends RemoteStoreBaseIntegTestCase {
         return Settings.builder().put(super.nodeSettings(nodeOrdinal)).put(REMOTE_CLUSTER_STATE_ENABLED_SETTING.getKey(), true).build();
     }
 
-    private void prepareCluster(int numClusterManagerNodes, int numDataOnlyNodes, String indices, int replicaCount, int shardCount) {
-        internalCluster().startClusterManagerOnlyNodes(numClusterManagerNodes);
-        internalCluster().startDataOnlyNodes(numDataOnlyNodes);
-        for (String index : indices.split(",")) {
-            createIndex(index, remoteStoreIndexSettings(replicaCount, shardCount));
-            ensureYellowAndNoInitializingShards(index);
-            ensureGreen(index);
-        }
-    }
-
     private Map<String, Long> initialTestSetup(int shardCount, int replicaCount, int dataNodeCount, int clusterManagerNodeCount) {
         prepareCluster(clusterManagerNodeCount, dataNodeCount, INDEX_NAME, replicaCount, shardCount);
         Map<String, Long> indexStats = indexData(1, false, INDEX_NAME);
         assertEquals(shardCount * (replicaCount + 1), getNumShards(INDEX_NAME).totalNumShards);
         ensureGreen(INDEX_NAME);
         return indexStats;
-    }
-
-    public void testRemoteCleanupTaskUpdated() {
-        int shardCount = randomIntBetween(1, 2);
-        int replicaCount = 1;
-        int dataNodeCount = shardCount * (replicaCount + 1);
-        int clusterManagerNodeCount = 1;
-
-        initialTestSetup(shardCount, replicaCount, dataNodeCount, clusterManagerNodeCount);
-        RemoteClusterStateService remoteClusterStateService = internalCluster().getClusterManagerNodeInstance(
-            RemoteClusterStateService.class
-        );
-
-        assertEquals(5, remoteClusterStateService.getStaleFileDeletionTask().getInterval().getMinutes());
-        assertTrue(remoteClusterStateService.getStaleFileDeletionTask().isScheduled());
-
-        // now disable
-        client().admin()
-            .cluster()
-            .prepareUpdateSettings()
-            .setPersistentSettings(Settings.builder().put(REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING.getKey(), -1))
-            .get();
-
-        assertEquals(-1, remoteClusterStateService.getStaleFileDeletionTask().getInterval().getMillis());
-        assertFalse(remoteClusterStateService.getStaleFileDeletionTask().isScheduled());
-
-        // now set Clean up interval to 1 min
-        client().admin()
-            .cluster()
-            .prepareUpdateSettings()
-            .setPersistentSettings(Settings.builder().put(REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING.getKey(), "1m"))
-            .get();
-        assertEquals(1, remoteClusterStateService.getStaleFileDeletionTask().getInterval().getMinutes());
-    }
-
-    public void testRemoteCleanupOnlyAfter10Updates() throws Exception {
-        int shardCount = randomIntBetween(1, 2);
-        int replicaCount = 1;
-        int dataNodeCount = shardCount * (replicaCount + 1);
-        int clusterManagerNodeCount = 1;
-
-        initialTestSetup(shardCount, replicaCount, dataNodeCount, clusterManagerNodeCount);
-        RemoteClusterStateService remoteClusterStateService = internalCluster().getClusterManagerNodeInstance(
-            RemoteClusterStateService.class
-        );
-
-        // set cleanup interval to 1 min
-        client().admin()
-            .cluster()
-            .prepareUpdateSettings()
-            .setPersistentSettings(Settings.builder().put(REMOTE_CLUSTER_STATE_CLEANUP_INTERVAL_SETTING.getKey(), "1m"))
-            .get();
-
-        replicaCount = updateReplicaCountNTimes(9, replicaCount);
-
-        RepositoriesService repositoriesService = internalCluster().getClusterManagerNodeInstance(RepositoriesService.class);
-
-        BlobStoreRepository repository = (BlobStoreRepository) repositoriesService.repository(REPOSITORY_NAME);
-        BlobPath baseMetadataPath = repository.basePath()
-            .add(
-                Base64.getUrlEncoder()
-                    .withoutPadding()
-                    .encodeToString(getClusterState().getClusterName().value().getBytes(StandardCharsets.UTF_8))
-            )
-            .add("cluster-state")
-            .add(getClusterState().metadata().clusterUUID());
-        BlobPath manifestContainerPath = baseMetadataPath.add("manifest");
-
-        assertBusy(() -> {
-            assertEquals(
-                RETAINED_MANIFESTS - 1,
-                repository.blobStore().blobContainer(manifestContainerPath).listBlobsByPrefix("manifest").size()
-            );
-        }, 1, TimeUnit.MINUTES);
-
-        replicaCount = updateReplicaCountNTimes(8, replicaCount);
-
-        // wait for 1 min, to ensure that clean up task ran and didn't clean up stale files because it was less than 10
-        Thread.sleep(60000);
-        assertNotEquals(
-            RETAINED_MANIFESTS - 1,
-            repository.blobStore().blobContainer(manifestContainerPath).listBlobsByPrefix("manifest").size()
-        );
-
-        // Do 2 more updates, now since the total successful state changes are more than 10, stale files will be cleaned up
-        replicaCount = updateReplicaCountNTimes(2, replicaCount);
-
-        assertBusy(() -> {
-            assertEquals(
-                RETAINED_MANIFESTS - 1,
-                repository.blobStore().blobContainer(manifestContainerPath).listBlobsByPrefix("manifest").size()
-            );
-        }, 1, TimeUnit.MINUTES);
-
-        Map<String, IndexMetadata> indexMetadataMap = remoteClusterStateService.getLatestClusterState(
-            cluster().getClusterName(),
-            getClusterState().metadata().clusterUUID(),
-            false
-        ).getMetadata().getIndices();
-        assertEquals(replicaCount, indexMetadataMap.values().stream().findFirst().get().getNumberOfReplicas());
-        assertEquals(shardCount, indexMetadataMap.values().stream().findFirst().get().getNumberOfShards());
     }
 
     public void testRemoteStateStats() {
