@@ -48,7 +48,7 @@ public class ClusterBlocksTests extends OpenSearchTestCase {
                     : "    \"global\" : {\n"
                         + clusterBlocks.global()
                             .stream()
-                            .map(clusterBlock -> getExpectedXContentFragment(clusterBlock, "      "))
+                            .map(clusterBlock -> getExpectedXContentFragment(clusterBlock, "      ", false))
                             .collect(Collectors.joining(",\n"))
                         + "\n    }"
                         + (!clusterBlocks.indices().isEmpty() ? "," : "")
@@ -72,7 +72,7 @@ public class ClusterBlocksTests extends OpenSearchTestCase {
                                         : "\n"
                                             + entry.getValue()
                                                 .stream()
-                                                .map(clusterBlock -> getExpectedXContentFragment(clusterBlock, "        "))
+                                                .map(clusterBlock -> getExpectedXContentFragment(clusterBlock, "        ", false))
                                                 .collect(Collectors.joining(",\n"))
                                             + "\n      }")
                             )

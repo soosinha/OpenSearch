@@ -33,6 +33,7 @@
 package org.opensearch.cluster.block;
 
 import org.opensearch.Version;
+import org.opensearch.cluster.metadata.Metadata;
 import org.opensearch.common.UUIDs;
 import org.opensearch.common.io.stream.BytesStreamOutput;
 import org.opensearch.common.xcontent.json.JsonXContent;
@@ -53,7 +54,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import static java.util.Collections.singletonMap;
 import static java.util.EnumSet.copyOf;
+import static org.opensearch.cluster.metadata.Metadata.CONTEXT_MODE_API;
+import static org.opensearch.cluster.metadata.Metadata.CONTEXT_MODE_GATEWAY;
 import static org.opensearch.test.VersionUtils.randomVersion;
 import static org.hamcrest.CoreMatchers.endsWith;
 import static org.hamcrest.CoreMatchers.equalTo;
@@ -145,14 +149,26 @@ public class ClusterBlockTests extends OpenSearchTestCase {
         assertThat(builder.build().getIndexBlockWithId("index", randomValueOtherThan(blockId, OpenSearchTestCase::randomInt)), nullValue());
     }
 
-    public void testToXContent() throws IOException {
+    public void testToXContent_APIMode() throws IOException {
         ClusterBlock clusterBlock = randomClusterBlock();
         XContentBuilder builder = JsonXContent.contentBuilder().prettyPrint();
         builder.startObject();
         clusterBlock.toXContent(builder, ToXContent.EMPTY_PARAMS);
         builder.endObject();
 
-        String expectedString = "{\n" + getExpectedXContentFragment(clusterBlock, "  ") + "\n}";
+        String expectedString = "{\n" + getExpectedXContentFragment(clusterBlock, "  ", false) + "\n}";
+
+        assertEquals(expectedString, builder.toString());
+    }
+
+    public void testToXContent_GatewayMode() throws IOException {
+        ClusterBlock clusterBlock = randomClusterBlock();
+        XContentBuilder builder = JsonXContent.contentBuilder().prettyPrint();
+        builder.startObject();
+        clusterBlock.toXContent(builder, new ToXContent.MapParams(singletonMap(Metadata.CONTEXT_MODE_PARAM, CONTEXT_MODE_GATEWAY)));
+        builder.endObject();
+
+        String expectedString = "{\n" + getExpectedXContentFragment(clusterBlock, "  ", true) + "\n}";
 
         assertEquals(expectedString, builder.toString());
     }
@@ -197,7 +213,7 @@ public class ClusterBlockTests extends OpenSearchTestCase {
         }
     }
 
-    static String getExpectedXContentFragment(ClusterBlock clusterBlock, String indent) {
+    static String getExpectedXContentFragment(ClusterBlock clusterBlock, String indent, boolean gatewayMode) {
         return indent
             + "\""
             + clusterBlock.id()
@@ -216,7 +232,7 @@ public class ClusterBlockTests extends OpenSearchTestCase {
                 : "")
             + String.format(
                 Locale.ROOT,
-                indent + "  \"levels\" : [%s]\n",
+                indent + "  \"levels\" : [%s]",
                 clusterBlock.levels().isEmpty()
                     ? " "
                     : "\n"
@@ -230,6 +246,9 @@ public class ClusterBlockTests extends OpenSearchTestCase {
                         + "\n  "
                         + indent
             )
+            + (gatewayMode ? ",\n" +
+              indent + "  \"status\" : \"" + clusterBlock.status() + "\",\n"
+            + indent + "  \"allow_release_resources\" : " + clusterBlock.isAllowReleaseResources() + "\n" : "\n" )
             + indent
             + "}";
     }
