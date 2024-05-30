@@ -32,6 +32,7 @@
 
 package org.opensearch.cluster.block;
 
+import org.opensearch.cluster.metadata.Metadata;
 import org.opensearch.common.Nullable;
 import org.opensearch.common.annotation.PublicApi;
 import org.opensearch.common.util.set.Sets;
@@ -49,6 +50,9 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 
+import static org.opensearch.cluster.metadata.Metadata.CONTEXT_MODE_API;
+import static org.opensearch.cluster.metadata.Metadata.CONTEXT_MODE_PARAM;
+
 /**
  * Blocks the cluster for concurrency
  *
@@ -62,6 +66,8 @@ public class ClusterBlock implements Writeable, ToXContentFragment {
     static final String KEY_RETRYABLE = "retryable";
     static final String KEY_DISABLE_STATE_PERSISTENCE = "disable_state_persistence";
     static final String KEY_LEVELS = "levels";
+    static final String KEY_STATUS = "status";
+    static final String KEY_ALLOW_RELEASE_RESOURCES = "allow_release_resources";
     private static final Set<String> VALID_FIELDS = Sets.newHashSet(
         KEY_UUID,
         KEY_DESCRIPTION,
@@ -169,6 +175,7 @@ public class ClusterBlock implements Writeable, ToXContentFragment {
 
     @Override
     public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
+        Metadata.XContentContext context = Metadata.XContentContext.valueOf(params.param(CONTEXT_MODE_PARAM, CONTEXT_MODE_API));
         builder.startObject(Integer.toString(id));
         if (uuid != null) {
             builder.field(KEY_UUID, uuid);
@@ -183,6 +190,10 @@ public class ClusterBlock implements Writeable, ToXContentFragment {
             builder.value(level.name().toLowerCase(Locale.ROOT));
         }
         builder.endArray();
+        if (context == Metadata.XContentContext.GATEWAY) {
+            builder.field(KEY_STATUS, status);
+            builder.field(KEY_ALLOW_RELEASE_RESOURCES, allowReleaseResources);
+        }
         builder.endObject();
         return builder;
     }
@@ -192,6 +203,8 @@ public class ClusterBlock implements Writeable, ToXContentFragment {
         String description = null;
         boolean retryable = false;
         boolean disableStatePersistence = false;
+        RestStatus status = null;
+        boolean allowReleaseResources = false;
         EnumSet<ClusterBlockLevel> levels = EnumSet.noneOf(ClusterBlockLevel.class);
         String currentFieldName = skipBlockID(parser);
         XContentParser.Token token;
@@ -212,6 +225,12 @@ public class ClusterBlock implements Writeable, ToXContentFragment {
                     case KEY_DISABLE_STATE_PERSISTENCE:
                         disableStatePersistence = parser.booleanValue();
                         break;
+                    case KEY_STATUS:
+                        status = RestStatus.valueOf(parser.text());
+                        break;
+                    case KEY_ALLOW_RELEASE_RESOURCES:
+                        allowReleaseResources = parser.booleanValue();
+                        break;
                     default:
                         throw new IllegalArgumentException("unknown field [" + currentFieldName + "]");
                 }
@@ -227,7 +246,7 @@ public class ClusterBlock implements Writeable, ToXContentFragment {
                 throw new IllegalArgumentException("unexpected token [" + token + "]");
             }
         }
-        return new ClusterBlock(id, uuid, description, retryable, disableStatePersistence, false, null, levels);
+        return new ClusterBlock(id, uuid, description, retryable, disableStatePersistence, allowReleaseResources, status, levels);
     }
 
     private static String skipBlockID(XContentParser parser) throws IOException {
