@@ -34,11 +34,21 @@ package org.opensearch.cluster.metadata;
 
 import org.opensearch.cluster.Diff;
 import org.opensearch.common.io.stream.BytesStreamOutput;
+import org.opensearch.common.xcontent.XContentFactory;
+import org.opensearch.common.xcontent.json.JsonXContent;
+import org.opensearch.core.common.bytes.BytesReference;
+import org.opensearch.core.xcontent.MediaType;
+import org.opensearch.core.xcontent.MediaTypeRegistry;
+import org.opensearch.core.xcontent.ToXContent;
+import org.opensearch.core.xcontent.XContentBuilder;
+import org.opensearch.core.xcontent.XContentParser;
+import org.opensearch.search.suggest.phrase.Correction;
 import org.opensearch.test.OpenSearchTestCase;
 
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.equalTo;
@@ -112,5 +122,46 @@ public class DiffableStringMapTests extends OpenSearchTestCase {
         dsm.writeTo(bso);
         DiffableStringMap deserialized = DiffableStringMap.readFrom(bso.bytes().streamInput());
         assertThat(deserialized, equalTo(dsm));
+    }
+
+    public void testToXContent() throws IOException {
+        Map<String, String> m = new HashMap<>();
+        if (frequently()) {
+            m.put("foo", "bar");
+            m.put("baz", "eggplant");
+            m.put("potato", "canon");
+        }
+        DiffableStringMap dsm = new DiffableStringMap(m);
+        XContentBuilder builder = JsonXContent.contentBuilder().prettyPrint();
+        dsm.toXContent(builder, null);
+        String expectedString = "{\n"
+        + "  \"inner_map\" : {\n"
+        + m.entrySet().stream().map(entry -> "    \"" + entry.getKey() + "\" : \"" + entry.getValue() + "\"").collect(Collectors.joining(",\n")) + "\n"
+        + "  }\n"
+        + "}";
+        assertEquals(expectedString, builder.toString());
+    }
+
+    public void testFromXContent() throws IOException {
+        Map<String, String> m = new HashMap<>();
+        if (frequently()) {
+            m.put("foo", "bar");
+            m.put("baz", "eggplant");
+            m.put("potato", "canon");
+        }
+        DiffableStringMap dsm = new DiffableStringMap(m);
+        boolean humanReadable = randomBoolean();
+        final MediaType mediaType = MediaTypeRegistry.JSON;
+        BytesReference originalBytes = toShuffledXContent(
+            dsm,
+            mediaType,
+            null,
+            humanReadable
+        );
+
+        try (XContentParser parser = createParser(mediaType.xContent(), originalBytes)) {
+            DiffableStringMap parsed = DiffableStringMap.fromXContent(parser);
+            assertEquals(dsm, parsed);
+        }
     }
 }

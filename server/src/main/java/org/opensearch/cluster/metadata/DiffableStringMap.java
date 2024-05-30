@@ -37,6 +37,9 @@ import org.opensearch.cluster.Diffable;
 import org.opensearch.common.annotation.PublicApi;
 import org.opensearch.core.common.io.stream.StreamInput;
 import org.opensearch.core.common.io.stream.StreamOutput;
+import org.opensearch.core.xcontent.ToXContentObject;
+import org.opensearch.core.xcontent.XContentBuilder;
+import org.opensearch.core.xcontent.XContentParser;
 
 import java.io.IOException;
 import java.util.AbstractMap;
@@ -46,6 +49,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
+
+import static org.opensearch.core.xcontent.XContentParser.Token.END_OBJECT;
+import static org.opensearch.core.xcontent.XContentParserUtils.ensureExpectedToken;
+import static org.opensearch.core.xcontent.XContentParserUtils.ensureFieldName;
 
 /**
  * This is a {@code Map<String, String>} that implements AbstractDiffable so it
@@ -54,7 +62,7 @@ import java.util.Set;
  * @opensearch.api
  */
 @PublicApi(since = "1.0.0")
-public class DiffableStringMap extends AbstractMap<String, String> implements Diffable<DiffableStringMap> {
+public class DiffableStringMap extends AbstractMap<String, String> implements Diffable<DiffableStringMap>, ToXContentObject {
 
     public static final DiffableStringMap EMPTY = new DiffableStringMap(Collections.emptyMap());
 
@@ -88,6 +96,28 @@ public class DiffableStringMap extends AbstractMap<String, String> implements Di
 
     public static Diff<DiffableStringMap> readDiffFrom(StreamInput in) throws IOException {
         return new DiffableStringMapDiff(in);
+    }
+
+    @Override
+    public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
+        builder.startObject();
+        builder.field("inner_map", innerMap);
+        builder.endObject();
+        return builder;
+    }
+
+    public static DiffableStringMap fromXContent(XContentParser parser) throws IOException {
+        if (parser.currentToken() == null) { // fresh parser? move to next token
+            parser.nextToken();
+        }
+        if (parser.currentToken() == XContentParser.Token.START_OBJECT) {
+            parser.nextToken();
+        }
+        ensureFieldName(parser, parser.currentToken(), "inner_map");
+        parser.nextToken();
+        Map<String, Object> innerMap = parser.mapOrdered();
+        ensureExpectedToken(END_OBJECT, parser.currentToken(), parser);
+        return new DiffableStringMap(innerMap.entrySet().stream().collect(Collectors.toMap(Entry::getKey, entry -> (String) entry.getValue())));
     }
 
     /**
