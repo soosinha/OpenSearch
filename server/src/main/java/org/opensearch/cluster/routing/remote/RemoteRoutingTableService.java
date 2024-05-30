@@ -14,6 +14,7 @@ import org.apache.lucene.store.IndexInput;
 import org.opensearch.action.LatchedActionListener;
 import org.opensearch.cluster.ClusterState;
 import org.opensearch.cluster.routing.IndexRoutingTable;
+import org.opensearch.cluster.routing.RoutingTable;
 import org.opensearch.common.CheckedRunnable;
 import org.opensearch.common.blobstore.AsyncMultiStreamBlobContainer;
 import org.opensearch.common.blobstore.BlobContainer;
@@ -49,6 +50,7 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
@@ -262,6 +264,42 @@ public class RemoteRoutingTableService implements Closeable {
             logger.info("RoutingTable read failed with error: {}", e.toString());
         }
         return null;
+    }
+
+    public List<ClusterMetadataManifest.UploadedIndexMetadata> getUpdatedIndexRoutingTableMetadata(List<String> updatedIndicesRouting, List<ClusterMetadataManifest.UploadedIndexMetadata> allIndicesRouting) {
+        return updatedIndicesRouting.stream().map(idx -> {
+            Optional<ClusterMetadataManifest.UploadedIndexMetadata> uploadedIndexMetadataOptional = allIndicesRouting.stream().filter(idx2 -> idx2.getIndexName().equals(idx)).findFirst();
+            assert uploadedIndexMetadataOptional.isPresent() == true;
+            return uploadedIndexMetadataOptional.get();
+        }).collect(Collectors.toList());
+    }
+
+    public static List<String> getIndicesRoutingDeleted(RoutingTable previousRoutingTable, RoutingTable currentRoutingTable) {
+        List<String> deletedIndicesRouting = new ArrayList<>();
+        for(IndexRoutingTable previousIndexRouting: previousRoutingTable.getIndicesRouting().values()) {
+            if(!currentRoutingTable.getIndicesRouting().containsKey(previousIndexRouting.getIndex().getName())) {
+                // Latest Routing Table does not have entry for the index which means the index is deleted
+                deletedIndicesRouting.add(previousIndexRouting.getIndex().getName());
+            }
+        }
+        return deletedIndicesRouting;
+    }
+
+    public static List<String> getIndicesRoutingUpdated(RoutingTable previousRoutingTable, RoutingTable currentRoutingTable) {
+        List<String> updatedIndicesRouting = new ArrayList<>();
+        for(IndexRoutingTable currentIndicesRouting: currentRoutingTable.getIndicesRouting().values()) {
+            if(!previousRoutingTable.getIndicesRouting().containsKey(currentIndicesRouting.getIndex().getName())) {
+                // Latest Routing Table does not have entry for the index which means the index is created
+                updatedIndicesRouting.add(currentIndicesRouting.getIndex().getName());
+            } else {
+                if(previousRoutingTable.getIndicesRouting().get(currentIndicesRouting.getIndex().getName()).equals(currentIndicesRouting)) {
+                    // if the latest routing table has the same routing table as the previous routing table, then the index is not updated
+                    continue;
+                }
+                updatedIndicesRouting.add(currentIndicesRouting.getIndex().getName());
+            }
+        }
+        return updatedIndicesRouting;
     }
 
     @Override

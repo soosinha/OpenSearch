@@ -14,6 +14,7 @@ import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.cluster.metadata.Metadata;
 import org.opensearch.cluster.routing.IndexRoutingTable;
 import org.opensearch.cluster.routing.RoutingTable;
+import org.opensearch.cluster.routing.remote.RemoteRoutingTableService;
 import org.opensearch.core.common.Strings;
 import org.opensearch.core.xcontent.MediaTypeRegistry;
 import org.opensearch.core.xcontent.ToXContentObject;
@@ -83,8 +84,8 @@ public class ClusterStateDiffManifest implements ToXContentObject {
                 customMetadataDeleted.add(custom);
             }
         }
-        indicesRoutingUpdated = getIndicesRoutingUpdated(previousState.routingTable(), state.routingTable());
-        indicesRoutingDeleted = getIndicesRoutingDeleted(previousState.routingTable(), state.routingTable());
+        indicesRoutingUpdated = RemoteRoutingTableService.getIndicesRoutingUpdated(previousState.routingTable(), state.routingTable());
+        indicesRoutingDeleted = RemoteRoutingTableService.getIndicesRoutingDeleted(previousState.routingTable(), state.routingTable());
     }
 
     public ClusterStateDiffManifest(String fromStateUUID,

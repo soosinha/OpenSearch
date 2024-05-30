@@ -1106,11 +1106,7 @@ public class RemoteClusterStateService implements Closeable {
             return uploadedIndexMetadataOptional.get();
         }).collect(Collectors.toList());
 
-        List<UploadedIndexMetadata> updatedIndexRouting = diff.getIndicesRoutingUpdated().stream().map(idx -> {
-            Optional<UploadedIndexMetadata> uploadedIndexMetadataOptional = manifest.getIndicesRouting().stream().filter(idx2 -> idx2.getIndexName().equals(idx)).findFirst();
-            assert uploadedIndexMetadataOptional.isPresent() == true;
-            return uploadedIndexMetadataOptional.get();
-        }).collect(Collectors.toList());
+        List<UploadedIndexMetadata> updatedIndexRouting =  remoteRoutingTableService.getUpdatedIndexRoutingTableMetadata(diff.getIndicesRoutingUpdated(), manifest.getIndicesRouting());
 
         Map<String, UploadedMetadataAttribute> updatedCustomMetadata = new HashMap<>();
         if (diff.getCustomMetadataUpdated() != null) {
