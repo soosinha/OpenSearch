@@ -10,16 +10,13 @@ package org.opensearch.gateway.remote.model;
 
 import java.io.IOException;
 import java.io.InputStream;
-import org.opensearch.common.CheckedRunnable;
-import org.opensearch.core.action.ActionListener;
-import org.opensearch.core.common.bytes.BytesReference;
 
 /**
  * An interface to read/write and object from/to a remote storage. This interface is agnostic of the remote storage type.
  *
  * @param <T> The object type which can be upload to or download from remote storage.
  */
-public interface RemoteObject<T> {
+public interface RemoteEntity<T> {
 
     /**
      * @return The entity T contained within this class

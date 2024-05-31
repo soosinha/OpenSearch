@@ -20,6 +20,7 @@ import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.Setting;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.core.action.ActionListener;
+import org.opensearch.gateway.remote.model.RemoteBlobStore;
 import org.opensearch.gateway.remote.model.RemoteIndexMetadata;
 import org.opensearch.gateway.remote.model.RemoteIndexMetadataBlobStore;
 import org.opensearch.gateway.remote.model.RemoteReadResult;
@@ -42,14 +43,14 @@ public class RemoteIndexMetadataManager {
     private final ThreadPool threadPool;
 
     private final BlobStoreTransferService blobStoreTransferService;
-    private final RemoteIndexMetadataBlobStore indexMetadataBlobStore;
+    private final RemoteBlobStore<RemoteIndexMetadata> indexMetadataBlobStore;
 
     private volatile TimeValue indexMetadataUploadTimeout;
     private final String clusterName;
 
     public RemoteIndexMetadataManager(BlobStoreRepository blobStoreRepository, ClusterSettings clusterSettings, ThreadPool threadPool, String clusterName,
         BlobStoreTransferService blobStoreTransferService) {
-        indexMetadataBlobStore = new RemoteIndexMetadataBlobStore(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
+        indexMetadataBlobStore = new RemoteBlobStore<>(blobStoreTransferService, blobStoreRepository, clusterName, threadPool);
         this.blobStoreRepository = blobStoreRepository;
         this.indexMetadataUploadTimeout = clusterSettings.get(INDEX_METADATA_UPLOAD_TIMEOUT_SETTING);
         this.threadPool = threadPool;

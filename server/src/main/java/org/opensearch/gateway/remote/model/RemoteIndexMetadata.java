@@ -26,7 +26,7 @@ import org.opensearch.repositories.blobstore.ChecksumBlobStoreFormat;
 /**
  * Wrapper class for uploading/downloading {@link IndexMetadata} to/from remote blob store
  */
-public class RemoteIndexMetadata extends AbstractRemoteBlobObject<IndexMetadata> {
+public class RemoteIndexMetadata extends AbstractRemoteBlobEntity<IndexMetadata> {
 
     public static final int INDEX_METADATA_CURRENT_CODEC_VERSION = 1;
 

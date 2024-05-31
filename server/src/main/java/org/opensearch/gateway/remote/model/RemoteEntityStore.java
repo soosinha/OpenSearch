@@ -16,11 +16,11 @@ import org.opensearch.core.action.ActionListener;
  *
  * @param <T> The object type which can be uploaded to or downloaded from remote storage.
  */
-public interface RemoteObjectStore<T, U extends RemoteObject<T>> {
+public interface RemoteEntityStore<T extends RemoteEntity<T>> {
 
-    public void writeAsync(U obj, ActionListener<Void> listener);
+    public void writeAsync(T obj, ActionListener<Void> listener);
 
-    public T read(U obj) throws IOException;
+    public T read(T obj) throws IOException;
 
-    public void readAsync(U obj, ActionListener<T> listener);
+    public void readAsync(T obj, ActionListener<T> listener);
 }
